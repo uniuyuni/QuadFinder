@@ -4,6 +4,9 @@ import Testing
 
 @Suite("Finder interaction models")
 struct FinderInteractionModelTests {
+    @Test @MainActor func sidebarUsesCompactFinderDensity() {
+        #expect(PersistentFinderSidebarView.compactRowHeight == 14)
+    }
     private func temporaryDirectory() throws -> URL {
         let url = FileManager.default.temporaryDirectory.appendingPathComponent(UUID().uuidString, isDirectory: true)
         try FileManager.default.createDirectory(at: url, withIntermediateDirectories: true)
@@ -135,9 +138,12 @@ struct FinderInteractionModelTests {
         monitor.receiveEvent(for: url)
         try await Task.sleep(for: .milliseconds(30))
         monitor.receiveEvent(for: url)
-        try await Task.sleep(for: .milliseconds(180))
+        let deadline = ContinuousClock.now + .seconds(1)
+        while capture.values.isEmpty, ContinuousClock.now < deadline {
+            try await Task.sleep(for: .milliseconds(20))
+        }
         #expect(capture.values.count == 1)
-        #expect(capture.values[0].0 == url.standardizedFileURL)
+        #expect(capture.values.first?.0 == url.standardizedFileURL)
     }
 
     @Test @MainActor func removedDirectoryCancelsPendingDebouncedNotification() async throws {
@@ -174,8 +180,9 @@ struct FinderInteractionModelTests {
 
 private final class MemorySidebarPreferences: SidebarPreferences, @unchecked Sendable {
     var storage: [String: Data] = [:]
+    var writeCount = 0
     func sidebarData(forKey key: String) -> Data? { storage[key] }
-    func setSidebarData(_ data: Data?, forKey key: String) { storage[key] = data }
+    func setSidebarData(_ data: Data?, forKey key: String) { storage[key] = data; writeCount += 1 }
 }
 
 @Suite("Sidebar persistence")
@@ -211,9 +218,8 @@ struct SidebarStoreTests {
         let preferences = MemorySidebarPreferences()
         let store = SidebarStore(preferences: preferences, home: URL(fileURLWithPath: "/tmp/home"))
         #expect(store.width == 100)
-        store.width = 220
+        store.setWidth(220)
         store.isVisible = false
-        store.width = 0
         #expect(store.width == 220)
         store.isVisible = true
         #expect(store.width == 220)
@@ -230,7 +236,7 @@ struct SidebarStoreTests {
         let customID = store!.favorites.last!.id
         store?.move(fromOffsets: IndexSet(integer: 5), toOffset: 0)
         store?.isVisible = false
-        store?.width = 999
+        store?.setWidth(999)
         store = SidebarStore(preferences: preferences, home: home)
         #expect(store?.favorites.first?.bookmark == bookmark)
         #expect(store?.isVisible == false)
@@ -241,6 +247,25 @@ struct SidebarStoreTests {
         store?.remove(id: defaultID)
         #expect(store!.favorites.contains { $0.id == defaultID })
         store?.stopObservingMounts()
+    }
+
+    @Test @MainActor func widthDragUsesFixedOriginClampsAndPersistsOnlyOnce() {
+        let preferences = MemorySidebarPreferences()
+        let store = SidebarStore(preferences: preferences, home: URL(fileURLWithPath: "/tmp/home"))
+        defer { store.stopObservingMounts() }
+        let baselineWrites = preferences.writeCount
+        #expect(store.beginWidthDrag() == 100)
+        store.updateWidthDrag(translation: 20)
+        #expect(store.width == 120)
+        store.updateWidthDrag(translation: 30)
+        #expect(store.width == 130) // fixed origin, not cumulative 150
+        store.updateWidthDrag(translation: 1_000)
+        #expect(store.width == SidebarStore.maximumWidth)
+        store.updateWidthDrag(translation: -1_000)
+        #expect(store.width == SidebarStore.minimumWidth)
+        #expect(preferences.writeCount == baselineWrites)
+        store.endWidthDrag()
+        #expect(preferences.writeCount == baselineWrites + 1)
     }
 
     @Test @MainActor func recentFoldersAndFilesAreDeduplicatedCappedAndPersisted() {

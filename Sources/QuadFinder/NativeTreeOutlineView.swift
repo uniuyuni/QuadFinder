@@ -13,6 +13,8 @@ struct NativeTreeOutlineView: NSViewRepresentable {
     let toggle: (FileItem) -> Void
     let receiveDrop: ([URL], UUID?) -> Void
     let trashDropped: ([URL]) -> Void
+    var sortDescriptor: FileSortDescriptor? = nil
+    var selectSort: ((FileSortField) -> Void)? = nil
     var contextMenu: NativeFinderContextMenuConfiguration? = nil
 
     func makeCoordinator() -> Coordinator { Coordinator(self) }
@@ -31,16 +33,14 @@ struct NativeTreeOutlineView: NSViewRepresentable {
         outline.usesAlternatingRowBackgroundColors = true
         outline.rowHeight = 18
         outline.intercellSpacing = .zero
-        outline.headerView = nil
+        outline.headerView = NSTableHeaderView()
         outline.target = coordinator
         outline.doubleAction = #selector(Coordinator.openSelected)
         outline.registerForDraggedTypes([.fileURL, NativeFileDragPasteboard.paneItemType])
         outline.setDraggingSourceOperationMask([.copy, .move, .link], forLocal: true)
         outline.setDraggingSourceOperationMask([.copy, .move, .delete, .link], forLocal: false)
-        let column = NSTableColumn(identifier: .init("tree"))
-        column.resizingMask = .autoresizingMask
-        outline.addTableColumn(column)
-        outline.outlineTableColumn = column
+        configureNativeFileColumns(on: outline, paneID: coordinator.parent.paneID, mode: "tree")
+        outline.outlineTableColumn = outline.tableColumn(withIdentifier: NativeFileColumn.name.identifier)
         let scroll = NSScrollView()
         scroll.documentView = outline
         scroll.hasVerticalScroller = true
@@ -71,13 +71,14 @@ struct NativeTreeOutlineView: NSViewRepresentable {
         func outlineView(_ outlineView: NSOutlineView, isItemExpandable item: Any) -> Bool { false }
         func outlineView(_ outlineView: NSOutlineView, viewFor tableColumn: NSTableColumn?, item: Any) -> NSView? {
             guard let row = item as? TreeRow else { return nil }
-            let id = NSUserInterfaceItemIdentifier("TreeCell")
-            let cell = (outlineView.makeView(withIdentifier: id, owner: nil) as? NSTableCellView) ?? makeCell(id)
-            cell.imageView?.image = NSWorkspace.shared.icon(forFile: row.item.url.path)
-            cell.textField?.stringValue = row.item.name
+            guard let kind = tableColumn.flatMap({ NativeFileColumn(rawValue: $0.identifier.rawValue) }) else { return nil }
+            let id = NSUserInterfaceItemIdentifier("TreeCell.\(kind.rawValue)")
+            let cell = (outlineView.makeView(withIdentifier: id, owner: nil) as? NSTableCellView) ?? makeCell(id, kind: kind)
+            if kind == .name { cell.imageView?.image = NSWorkspace.shared.icon(forFile: row.item.url.path) }
+            cell.textField?.stringValue = text(for: row.item, column: kind)
             cell.textField?.toolTip = row.item.url.path
             cell.constraints.first(where: { $0.identifier == "TreeIndent" })?.constant = CGFloat(row.depth * 14 + 20)
-            if let button = cell.viewWithTag(91) as? NSButton {
+            if kind == .name, let button = cell.viewWithTag(91) as? NSButton {
                 button.isHidden = !row.item.isDirectory || row.item.isSymbolicLink
                 button.identifier = .init(row.item.url.absoluteString)
                 button.frame.origin.x = CGFloat(row.depth * 14 + 2)
@@ -85,16 +86,33 @@ struct NativeTreeOutlineView: NSViewRepresentable {
             return cell
         }
 
-        private func makeCell(_ id: NSUserInterfaceItemIdentifier) -> NSTableCellView {
+        private func text(for item: FileItem, column: NativeFileColumn) -> String {
+            switch column { case .name: item.name; case .size: NativeFileMetadataText.size(item); case .modificationDate: NativeFileMetadataText.modified(item); case .cloud: NativeFileMetadataText.cloud(item) }
+        }
+
+        private func makeCell(_ id: NSUserInterfaceItemIdentifier, kind: NativeFileColumn) -> NSTableCellView {
             let cell = NSTableCellView(); cell.identifier = id
-            let button = NSButton(image: NSImage(systemSymbolName: "chevron.right", accessibilityDescription: nil)!, target: self, action: #selector(toggleRow(_:)))
-            button.isBordered = false; button.tag = 91; button.frame = NSRect(x: 2, y: 2, width: 14, height: 14)
-            let image = NSImageView(); image.translatesAutoresizingMaskIntoConstraints = false
             let text = NSTextField(labelWithString: ""); text.translatesAutoresizingMaskIntoConstraints = false; text.font = .systemFont(ofSize: 11.5)
-            cell.imageView = image; cell.textField = text; cell.addSubview(button); cell.addSubview(image); cell.addSubview(text)
-            let indent = image.leadingAnchor.constraint(equalTo: cell.leadingAnchor, constant: 20); indent.identifier = "TreeIndent"
-            NSLayoutConstraint.activate([indent, image.centerYAnchor.constraint(equalTo: cell.centerYAnchor), image.widthAnchor.constraint(equalToConstant: 14), image.heightAnchor.constraint(equalToConstant: 14), text.leadingAnchor.constraint(equalTo: image.trailingAnchor, constant: 5), text.trailingAnchor.constraint(equalTo: cell.trailingAnchor, constant: -4), text.centerYAnchor.constraint(equalTo: cell.centerYAnchor)])
+            cell.textField = text; cell.addSubview(text)
+            if kind == .name {
+                let button = NSButton(image: NSImage(systemSymbolName: "chevron.right", accessibilityDescription: nil)!, target: self, action: #selector(toggleRow(_:)))
+                button.isBordered = false; button.tag = 91; button.frame = NSRect(x: 2, y: 2, width: 14, height: 14); cell.addSubview(button)
+                let image = NSImageView(); image.translatesAutoresizingMaskIntoConstraints = false; cell.imageView = image; cell.addSubview(image)
+                let indent = image.leadingAnchor.constraint(equalTo: cell.leadingAnchor, constant: 20); indent.identifier = "TreeIndent"
+                NSLayoutConstraint.activate([indent, image.centerYAnchor.constraint(equalTo: cell.centerYAnchor), image.widthAnchor.constraint(equalToConstant: 14), image.heightAnchor.constraint(equalToConstant: 14), text.leadingAnchor.constraint(equalTo: image.trailingAnchor, constant: 5)])
+            } else { text.leadingAnchor.constraint(equalTo: cell.leadingAnchor, constant: 4).isActive = true }
+            text.trailingAnchor.constraint(equalTo: cell.trailingAnchor, constant: -4).isActive = true
+            text.centerYAnchor.constraint(equalTo: cell.centerYAnchor).isActive = true
+            text.alignment = kind == .size ? .right : .left
             return cell
+        }
+
+        private func metadataLabel(tag: Int, alignment: NSTextAlignment = .left) -> NSTextField {
+            let label = NSTextField(labelWithString: "")
+            label.translatesAutoresizingMaskIntoConstraints = false; label.tag = tag
+            label.font = .systemFont(ofSize: 11.5); label.textColor = .secondaryLabelColor
+            label.alignment = alignment; label.lineBreakMode = .byTruncatingTail
+            return label
         }
 
         @objc private func toggleRow(_ sender: NSButton) {
@@ -107,12 +125,27 @@ struct NativeTreeOutlineView: NSViewRepresentable {
             parent.activate()
             parent.selection = Set(outline.selectedRowIndexes.compactMap { parent.rows.indices.contains($0) ? parent.rows[$0].item.url : nil })
         }
+        func outlineView(_ outlineView: NSOutlineView, sortDescriptorsDidChange oldDescriptors: [NSSortDescriptor]) {
+            guard let key = outlineView.sortDescriptors.first?.key, let column = NativeFileColumn(rawValue: key) else { return }
+            parent.selectSort?(column.sortField)
+        }
+        func outlineViewColumnDidResize(_ notification: Notification) {
+            guard let column = notification.userInfo?["NSTableColumn"] as? NSTableColumn,
+                  let kind = NativeFileColumn(rawValue: column.identifier.rawValue) else { return }
+            NativeColumnWidthStore().save(column.width, paneID: parent.paneID, mode: "tree", column: kind)
+        }
         func applySelection() {
             guard let outline else { return }
             let indexes = IndexSet(parent.rows.indices.filter { parent.selection.contains(parent.rows[$0].item.url) })
             applyingSelection = true; outline.selectRowIndexes(indexes, byExtendingSelection: false); applyingSelection = false
         }
         func reload(_ outline: NSOutlineView) {
+            for column in outline.tableColumns { outline.setIndicatorImage(nil, in: column) }
+            if let sort = parent.sortDescriptor,
+               let kind = NativeFileColumn.allCases.first(where: { $0.sortField == sort.field }),
+               let column = outline.tableColumn(withIdentifier: kind.identifier) {
+                outline.setIndicatorImage(NSImage(named: sort.ascending ? "NSAscendingSortIndicator" : "NSDescendingSortIndicator"), in: column)
+            }
             applyingSelection = true
             outline.reloadData()
             let indexes = IndexSet(parent.rows.indices.filter { parent.selection.contains(parent.rows[$0].item.url) })

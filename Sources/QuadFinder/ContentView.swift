@@ -58,6 +58,10 @@ struct ContentView: View {
             let error = note.userInfo?["error"] as? Error ?? CocoaError(.fileWriteUnknown)
             workspace.report("ディスクを取り出せません", error: error)
         }
+        .onReceive(NotificationCenter.default.publisher(for: .quadFinderSidebarDidEject)) { note in
+            guard let volumeURL = note.object as? URL else { return }
+            workspace.relocatePanesAfterEject(of: volumeURL)
+        }
         .alert(item: $workspace.error) { error in
             Alert(title: Text(error.title), message: Text(error.message), dismissButton: .default(Text("OK")))
         }
@@ -107,6 +111,25 @@ struct ContentView: View {
                 Divider()
                 SelectionInfoModuleView()
             }
+            if workspace.state.moduleSettings.imagePreview.isVisible {
+                Divider()
+                ImagePreviewModuleView(pane: modulePane(workspace.state.moduleSettings.imagePreview.context)) {
+                    workspace.updateModuleSettings { $0.imagePreview.isVisible = false }
+                }
+            }
+            if workspace.state.moduleSettings.hexViewer.isVisible {
+                Divider()
+                HexViewerModuleView(selectedURLs: modulePane(workspace.state.moduleSettings.hexViewer.context)?.selectedURLs ?? []) {
+                    workspace.updateModuleSettings { $0.hexViewer.isVisible = false }
+                }
+            }
+        }
+    }
+
+    private func modulePane(_ context: ModuleContext) -> PaneState? {
+        switch context {
+        case .active, .window: workspace.activePane
+        case .pinned(let id), .pair(let id, _): workspace.pane(id: id)
         }
     }
 
@@ -158,6 +181,14 @@ struct ContentView: View {
                 Toggle("フォルダ比較", isOn: Binding(
                     get: { workspace.state.moduleSettings.comparison.isVisible },
                     set: { value in workspace.updateModuleSettings { $0.comparison.isVisible = value } }
+                ))
+                Toggle("画像表示", isOn: Binding(
+                    get: { workspace.state.moduleSettings.imagePreview.isVisible },
+                    set: { value in workspace.updateModuleSettings { $0.imagePreview.isVisible = value } }
+                ))
+                Toggle("Hexビューアー", isOn: Binding(
+                    get: { workspace.state.moduleSettings.hexViewer.isVisible },
+                    set: { value in workspace.updateModuleSettings { $0.hexViewer.isVisible = value } }
                 ))
             } label: { Label("モジュール", systemImage: "sidebar.right") }
             Button { showsPaneSets = true } label: { Label("セット", systemImage: "square.grid.2x2") }
@@ -212,11 +243,11 @@ struct ContentView: View {
 
 extension Notification.Name {
     static let quadFinderSidebarEjectFailed = Notification.Name("QuadFinder.SidebarEjectFailed")
+    static let quadFinderSidebarDidEject = Notification.Name("QuadFinder.SidebarDidEject")
 }
 
 private struct SidebarResizeHandle: View {
     @ObservedObject var store: SidebarStore
-    @State private var dragStartWidth: Double?
     @State private var hovering = false
 
     var body: some View {
@@ -232,15 +263,14 @@ private struct SidebarResizeHandle: View {
         }
         .gesture(DragGesture(minimumDistance: 0)
             .onChanged { value in
-                if dragStartWidth == nil { dragStartWidth = store.width }
-                store.width = (dragStartWidth ?? store.width) + Double(value.translation.width)
+                store.updateWidthDrag(translation: Double(value.translation.width))
             }
-            .onEnded { _ in dragStartWidth = nil })
+            .onEnded { _ in store.endWidthDrag() })
         .accessibilityLabel("サイドバーの幅")
         .accessibilityAdjustableAction { direction in
             switch direction {
-            case .increment: store.width += 10
-            case .decrement: store.width -= 10
+            case .increment: store.setWidth(store.width + 10)
+            case .decrement: store.setWidth(store.width - 10)
             @unknown default: break
             }
         }

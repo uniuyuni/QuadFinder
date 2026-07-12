@@ -241,9 +241,6 @@ struct PaneView: View {
             ContentUnavailableView("空のフォルダ", systemImage: "folder")
                 .frame(maxWidth: .infinity, maxHeight: .infinity)
         } else if pane.viewStyle == .list {
-            VStack(spacing: 0) {
-                sortableHeader(pane)
-                Divider()
                 NativeFileTableView(
                     paneID: paneID,
                     items: pane.sortDescriptor.sorted(browser.items),
@@ -256,9 +253,11 @@ struct PaneView: View {
                     trashDropped: { urls in
                         workspace.prepareTrash(urls, origin: .dragAndDrop, accessBookmark: pane.accessBookmark)
                     },
+                    showsHeader: true,
+                    sortDescriptor: pane.sortDescriptor,
+                    selectSort: { field in workspace.updatePane(id: paneID) { $0.sortDescriptor.select(field) } },
                     contextMenu: nativeContextMenu(for: pane)
                 )
-            }
         } else if pane.viewStyle == .icons {
             NativeFileCollectionView(
                 paneID: paneID,
@@ -295,9 +294,6 @@ struct PaneView: View {
                 contextMenu: nativeContextMenu(for: pane)
             )
         } else {
-            VStack(spacing: 0) {
-                sortableHeader(pane)
-                Divider()
                 TreeFileView(
                     paneID: paneID, rootItems: browser.items, showsHiddenFiles: pane.showsHiddenFiles,
                     sortDescriptor: pane.sortDescriptor,
@@ -310,40 +306,12 @@ struct PaneView: View {
                     trashDropped: { urls in
                         workspace.prepareTrash(urls, origin: .dragAndDrop, accessBookmark: pane.accessBookmark)
                     },
+                    selectSort: { field in workspace.updatePane(id: paneID) { $0.sortDescriptor.select(field) } },
                     contextMenu: nativeContextMenu(for: pane)
                 )
-            }
         }
     }
 
-    private func sortableHeader(_ pane: PaneState) -> some View {
-        HStack(spacing: 8) {
-            sortButton("名前", field: .name, width: nil, alignment: .leading, pane: pane)
-            sortButton("サイズ", field: .size, width: 82, alignment: .trailing, pane: pane)
-            sortButton("更新日", field: .modificationDate, width: 125, alignment: .leading, pane: pane)
-            sortButton("クラウド", field: .cloud, width: 76, alignment: .leading, pane: pane)
-        }
-        .font(.caption).foregroundStyle(.secondary)
-        .padding(.horizontal, 9).frame(height: 20)
-    }
-
-    private func sortButton(_ title: String, field: FileSortField, width: CGFloat?, alignment: Alignment, pane: PaneState) -> some View {
-        Button {
-            workspace.updatePane(id: paneID) { $0.sortDescriptor.select(field) }
-        } label: {
-            HStack(spacing: 2) {
-                Text(title)
-                if pane.sortDescriptor.field == field {
-                    Image(systemName: pane.sortDescriptor.ascending ? "chevron.up" : "chevron.down")
-                        .font(.system(size: 7, weight: .bold))
-                }
-            }
-            .frame(maxWidth: width == nil ? .infinity : nil, alignment: alignment)
-            .frame(width: width, alignment: alignment)
-            .contentShape(Rectangle())
-        }
-        .buttonStyle(.plain)
-    }
 
     private func compactRow(_ item: FileItem) -> some View {
         HStack(spacing: 6) {
@@ -361,11 +329,8 @@ struct PaneView: View {
                 } else { Text("—") }
             }
             .foregroundStyle(.secondary).frame(width: 125, alignment: .leading)
-            Group {
-                if item.isUbiquitous { Text(item.cloudDownloadStatus ?? "状態不明") }
-                else { Text("") }
-            }
-            .foregroundStyle(.secondary).frame(width: 76, alignment: .leading)
+            Text(NativeFileMetadataText.cloud(item))
+                .foregroundStyle(.secondary).frame(width: 90, alignment: .leading)
         }
         .font(.system(size: 11.5))
         .frame(maxWidth: .infinity)

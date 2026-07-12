@@ -213,6 +213,8 @@ struct PaneState: Identifiable, Codable, Equatable, Sendable {
 enum ModuleKind: String, Codable, CaseIterable, Sendable {
     case selectionInfo
     case operationQueue
+    case imagePreview
+    case hexViewer
 }
 
 enum ModuleContext: Codable, Equatable, Sendable {
@@ -231,8 +233,10 @@ struct ModuleSettings: Codable, Equatable, Sendable {
     var selectionInfo = ModuleConfiguration(isVisible: false, context: .active)
     var operationQueue = ModuleConfiguration(isVisible: true, context: .window)
     var comparison = ModuleConfiguration(isVisible: false, context: .active)
+    var imagePreview = ModuleConfiguration(isVisible: false, context: .active)
+    var hexViewer = ModuleConfiguration(isVisible: false, context: .active)
 
-    private enum CodingKeys: String, CodingKey { case selectionInfo, operationQueue, comparison }
+    private enum CodingKeys: String, CodingKey { case selectionInfo, operationQueue, comparison, imagePreview, hexViewer }
 
     init() {}
 
@@ -243,6 +247,10 @@ struct ModuleSettings: Codable, Equatable, Sendable {
         operationQueue = try c.decodeIfPresent(ModuleConfiguration.self, forKey: .operationQueue)
             ?? ModuleConfiguration(isVisible: true, context: .window)
         comparison = try c.decodeIfPresent(ModuleConfiguration.self, forKey: .comparison)
+            ?? ModuleConfiguration(isVisible: false, context: .active)
+        imagePreview = try c.decodeIfPresent(ModuleConfiguration.self, forKey: .imagePreview)
+            ?? ModuleConfiguration(isVisible: false, context: .active)
+        hexViewer = try c.decodeIfPresent(ModuleConfiguration.self, forKey: .hexViewer)
             ?? ModuleConfiguration(isVisible: false, context: .active)
     }
 }
@@ -317,6 +325,12 @@ struct WorkspaceState: Codable, Equatable, Sendable {
         if case .pinned(let id) = moduleSettings.selectionInfo.context,
            !validIDs.contains(id) {
             moduleSettings.selectionInfo.context = .active
+        }
+        if case .pinned(let id) = moduleSettings.imagePreview.context, !validIDs.contains(id) {
+            moduleSettings.imagePreview.context = .active
+        }
+        if case .pinned(let id) = moduleSettings.hexViewer.context, !validIDs.contains(id) {
+            moduleSettings.hexViewer.context = .active
         }
         moduleSettings.operationQueue.context = .window
         if case .pair(let source, let target) = moduleSettings.comparison.context {

@@ -13,6 +13,7 @@ RESOURCES_DIR="$APP_PATH/Contents/Resources"
 INFO_PLIST="$APP_PATH/Contents/Info.plist"
 EXECUTABLE="$ROOT_DIR/.build/release/QuadFinder"
 APP_ICON="$ROOT_DIR/Sources/QuadFinder/Resources/AppIcon.icns"
+ICON_GENERATOR="$ROOT_DIR/scripts/generate_app_icon.sh"
 
 if [[ ! -f "$VERSION_SOURCE" ]]; then
   echo "error: AppVersion.swift is missing: $VERSION_SOURCE" >&2
@@ -30,6 +31,7 @@ if [[ $(printf '%s\n' "$marketing_version" | sed '/^$/d' | wc -l | tr -d ' ') -n
 fi
 
 cd "$ROOT_DIR"
+"$ICON_GENERATOR"
 swift build -c release
 
 if [[ ! -x "$EXECUTABLE" ]]; then

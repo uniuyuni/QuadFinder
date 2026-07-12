@@ -334,6 +334,34 @@ final class WorkspaceStore: ObservableObject {
         }
     }
 
+    /// A successfully ejected volume must not leave panes pointing at a path
+    /// that can no longer be enumerated. Move every affected active tab home.
+    func relocatePanesAfterEject(of volumeURL: URL,
+                                 homeURL: URL = FileManager.default.homeDirectoryForCurrentUser) {
+        let affected = state.panes.filter { Self.contains($0.currentURL, in: volumeURL) }.map(\.id)
+        for paneID in affected {
+            updatePane(id: paneID) { pane in
+                pane.backwardHistory.append(pane.currentURL)
+                pane.forwardHistory.removeAll()
+                pane.currentURL = homeURL
+                pane.selectedURLs.removeAll()
+                pane.scrollAnchor = nil
+                pane.accessBookmark = nil
+            }
+            NotificationCenter.default.post(name: .quadFinderDirectoryDidChange, object: homeURL)
+        }
+        if affected.contains(state.activePaneID) { QuickLookPresenter.shared.reloadSelection([]) }
+    }
+
+    static func contains(_ candidate: URL, in ancestor: URL) -> Bool {
+        func components(_ url: URL) -> [String] {
+            url.standardizedFileURL.resolvingSymlinksInPath().pathComponents
+        }
+        let root = components(ancestor)
+        let child = components(candidate)
+        return child.count >= root.count && Array(child.prefix(root.count)) == root
+    }
+
     func setSelection(_ urls: Set<URL>, in paneID: UUID, propagateLinks: Bool = true) {
         updatePane(id: paneID) { $0.selectedURLs = urls }
         if paneID == state.activePaneID {

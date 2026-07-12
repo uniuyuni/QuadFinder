@@ -314,9 +314,14 @@ struct FolderSizeCalculator: Sendable {
     func calculate(
         urls: [URL],
         useCache: Bool = true,
+        elapsedTime: (@Sendable () -> Duration)? = nil,
         progress: @escaping @Sendable (FolderSizeProgress) async -> Void = { _ in }
     ) async throws -> FolderSizeResult {
         let clock = ContinuousClock()
+        let startedAt = clock.now
+        let elapsed: @Sendable () -> Duration
+        if let elapsedTime { elapsed = elapsedTime }
+        else { elapsed = { clock.now - startedAt } }
         let cacheKey = urls.map { url in
             let values = try? url.resourceValues(forKeys: [.contentModificationDateKey, .fileSizeKey])
             return RootStamp(path: url.standardizedFileURL.path,
@@ -331,21 +336,21 @@ struct FolderSizeCalculator: Sendable {
         }
 
         var result = FolderSizeResult()
-        var lastProgressAt = clock.now
-        var lastProgressCount = 0
+        var lastProgressAt: Duration = .zero
         var lastPath = urls.first?.path ?? ""
 
-        // Crossing actors for every file dominates large directory scans. Emit at
-        // most ten updates/second, while retaining a count-based fallback for fast
-        // clocks and a guaranteed final update.
+        // UI updates are intentionally capped at twice per second. Cancellation
+        // is still checked for every enumerated item and is not throttled.
         func reportProgressIfNeeded(path: String, force: Bool = false) async {
             lastPath = path
-            let now = clock.now
-            guard force || result.itemCount - lastProgressCount >= 512 || now - lastProgressAt >= .milliseconds(100) else { return }
+            let now = elapsed()
+            guard force || now - lastProgressAt >= .milliseconds(500) else { return }
             lastProgressAt = now
-            lastProgressCount = result.itemCount
             await progress(.init(itemCount: result.itemCount, currentPath: path))
         }
+
+        // Initial and final states are delivered immediately.
+        await reportProgressIfNeeded(path: lastPath, force: true)
 
         let keys: [URLResourceKey] = [.isRegularFileKey, .isSymbolicLinkKey, .fileSizeKey]
         for root in urls {
@@ -449,9 +454,9 @@ final class GetInfoModel: ObservableObject, Identifiable {
                 var scope = SecurityScopeSession()
                 try scope.add(bookmark: bookmark, requestedURLs: folders)
                 defer { scope.stop() }
-                let result = try await FolderSizeCalculator().calculate(urls: folders) { value in
+                let result = try await FolderSizeCalculator().calculate(urls: folders, progress: { value in
                     await MainActor.run { self.folderSizeProgress = value }
-                }
+                })
                 folderSize = result
             } catch is CancellationError {
                 // Cancellation deliberately retains no misleading partial total.
@@ -505,7 +510,7 @@ struct GetInfoSheet: View {
             if model.items.contains(where: \.isDirectory) {
                 HStack {
                     if model.isCalculatingSize {
-                        ProgressView().controlSize(.small)
+                        ProgressView().controlSize(.small).accessibilityLabel("フォルダサイズを計算中")
                         Text("\(model.folderSizeProgress?.itemCount ?? 0)項目を計算中…")
                         Spacer()
                         Button("キャンセル") { model.cancelFolderSize() }
@@ -517,9 +522,6 @@ struct GetInfoSheet: View {
                                 .help("ファイル内容の論理サイズです。APFSの共有ブロックや圧縮を反映したディスク使用量ではありません。")
                         }
                     }
-                }
-                if let path = model.folderSizeProgress?.currentPath, model.isCalculatingSize {
-                    Text(path).font(.caption2).foregroundStyle(.tertiary).lineLimit(1)
                 }
             }
             List(model.items) { item in
@@ -596,17 +598,10 @@ final class SidebarStore: ObservableObject {
     @Published private(set) var ejectingDeviceIDs: Set<URL> = []
     @Published private(set) var recents: [SidebarRecentItem]
     @Published var isVisible: Bool { didSet { save() } }
-    @Published private var persistedWidth: Double
-    var width: Double {
-        get { persistedWidth }
-        set {
-            guard newValue >= Self.minimumWidth else { return }
-            let clamped = min(max(newValue, Self.minimumWidth), Self.maximumWidth)
-            guard persistedWidth != clamped else { return }
-            persistedWidth = clamped
-            save()
-        }
-    }
+    /// The displayed width. During a drag this changes without writing preferences;
+    /// committing only once avoids layout feedback making the divider jitter.
+    @Published private(set) var width: Double
+    private var dragOriginWidth: Double?
 
     private struct State: Codable {
         var version: Int?
@@ -626,12 +621,12 @@ final class SidebarStore: ObservableObject {
             favorites = state.favorites
             isVisible = state.isVisible
             let migratedWidth = state.version == nil && state.width == 190 ? 100 : state.width
-            persistedWidth = min(max(migratedWidth, Self.minimumWidth), Self.maximumWidth)
+            width = min(max(migratedWidth, Self.minimumWidth), Self.maximumWidth)
             recents = state.recents ?? []
         } else {
             favorites = defaults
             isVisible = true
-            persistedWidth = 100
+            width = 100
             recents = []
         }
         refreshDevices()
@@ -645,6 +640,34 @@ final class SidebarStore: ObservableObject {
             let bookmark = note.userInfo?["bookmark"] as? Data
             Task { @MainActor in self?.recordRecent(url, kind: kind, bookmark: bookmark) }
         })
+    }
+
+    func setWidth(_ proposed: Double) {
+        let clamped = Self.clampedWidth(proposed)
+        guard width != clamped else { return }
+        width = clamped
+        save()
+    }
+
+    @discardableResult
+    func beginWidthDrag() -> Double {
+        if dragOriginWidth == nil { dragOriginWidth = width }
+        return dragOriginWidth!
+    }
+
+    func updateWidthDrag(translation: Double) {
+        let origin = beginWidthDrag()
+        width = Self.clampedWidth(origin + translation)
+    }
+
+    func endWidthDrag() {
+        guard dragOriginWidth != nil else { return }
+        dragOriginWidth = nil
+        save()
+    }
+
+    static func clampedWidth(_ value: Double) -> Double {
+        min(max(value, minimumWidth), maximumWidth)
     }
 
     static func defaultFavorites(home: URL) -> [SidebarFavorite] {
@@ -715,6 +738,7 @@ final class SidebarStore: ObservableObject {
 }
 
 struct PersistentFinderSidebarView: View {
+    static let compactRowHeight: CGFloat = 14
     @ObservedObject var store: SidebarStore
     let navigate: (SidebarFavorite) -> Void
     let openRecent: (SidebarRecentItem) -> Void
@@ -723,95 +747,28 @@ struct PersistentFinderSidebarView: View {
         List {
             Section("よく使う項目") {
                 ForEach(store.favorites) { favorite in
-                    Button { navigate(favorite) } label: {
-                        Label(favorite.name, systemImage: favorite.name == "ゴミ箱" ? "trash" : "folder")
-                            .frame(maxWidth: .infinity, alignment: .leading)
-                    }
-                    .buttonStyle(.plain)
-                    .contextMenu {
-                        if !favorite.isDefault { Button("サイドバーから取り除く") { store.remove(id: favorite.id) } }
-                        Button("パスをコピー") {
-                            NSPasteboard.general.clearContents()
-                            NSPasteboard.general.setString(favorite.url.path, forType: .string)
-                        }
-                    }
+                    favoriteRow(favorite)
                 }
                 .onMove(perform: store.move)
             }
             Section("デバイス") {
                 ForEach(store.devices) { device in
-                    HStack(spacing: 4) {
-                        Button {
-                            navigate(SidebarFavorite(name: device.name, url: device.url, isDefault: true))
-                        } label: {
-                            Label(device.name, systemImage: device.systemImage)
-                                .frame(maxWidth: .infinity, alignment: .leading)
-                                .contentShape(Rectangle())
-                        }
-                        .buttonStyle(.plain)
-                        if device.isEjectable {
-                            Button {
-                                Task {
-                                    do { try await store.eject(device) }
-                                    catch {
-                                        NotificationCenter.default.post(name: .quadFinderSidebarEjectFailed,
-                                                                        object: device.url,
-                                                                        userInfo: ["error": error])
-                                    }
-                                }
-                            } label: {
-                                if store.ejectingDeviceIDs.contains(device.id) {
-                                    ProgressView().controlSize(.mini).padding(3)
-                                } else {
-                                    Image(systemName: "eject.fill")
-                                        .font(.caption)
-                                        .foregroundStyle(.secondary)
-                                        .contentShape(Rectangle())
-                                        .padding(3)
-                                }
-                            }
-                            .buttonStyle(.plain)
-                            .disabled(store.ejectingDeviceIDs.contains(device.id))
-                            .help("\(device.name)を取り出す")
-                            .accessibilityLabel("\(device.name)を取り出す")
-                        }
-                    }
-                    .contextMenu {
-                        if device.isEjectable {
-                            Button("取り出す") {
-                                Task {
-                                    do { try await store.eject(device) }
-                                    catch {
-                                        NotificationCenter.default.post(name: .quadFinderSidebarEjectFailed,
-                                                                        object: device.url,
-                                                                        userInfo: ["error": error])
-                                    }
-                                }
-                            }
-                            .disabled(store.ejectingDeviceIDs.contains(device.id))
-                        }
-                    }
+                    deviceRow(device)
                 }
             }
             if !store.recents.isEmpty {
                 Section("履歴") {
                     ForEach(store.recents) { recent in
-                        Button {
-                            openRecent(recent)
-                        } label: {
-                            Label(recent.url.lastPathComponent.isEmpty ? recent.url.path : recent.url.lastPathComponent,
-                                  systemImage: !FileManager.default.fileExists(atPath: recent.url.path) ? "questionmark.diamond" : (recent.kind == .folder ? "folder" : "doc"))
-                                .frame(maxWidth: .infinity, alignment: .leading)
-                        }
-                        .buttonStyle(.plain)
-                        .help(recent.url.path(percentEncoded: false))
-                        .contextMenu { Button("履歴から削除") { store.removeRecent(recent.url) } }
+                        recentRow(recent)
                     }
                     Button("履歴を消去", role: .destructive) { store.clearRecents() }
                         .font(.caption)
                 }
             }
         }
+        .font(.system(size: 10.5))
+        .controlSize(.mini)
+        .environment(\.defaultMinListRowHeight, Self.compactRowHeight)
         .listStyle(.sidebar)
         .frame(minWidth: 90, idealWidth: store.width, maxWidth: 360)
         .dropDestination(for: URL.self) { urls, _ in
@@ -820,6 +777,56 @@ struct PersistentFinderSidebarView: View {
                 store.addCustom(name: url.lastPathComponent, url: url, bookmark: bookmark)
             }
             return !urls.isEmpty
+        }
+    }
+
+    private func favoriteRow(_ favorite: SidebarFavorite) -> some View {
+        Button { navigate(favorite) } label: {
+            Label(favorite.name, systemImage: favorite.name == "ゴミ箱" ? "trash" : "folder")
+                .imageScale(.small).frame(maxWidth: .infinity, alignment: .leading).frame(height: Self.compactRowHeight)
+        }
+        .buttonStyle(.plain)
+        .contextMenu {
+            if !favorite.isDefault { Button("サイドバーから取り除く") { store.remove(id: favorite.id) } }
+            Button("パスをコピー") { NSPasteboard.general.clearContents(); NSPasteboard.general.setString(favorite.url.path, forType: .string) }
+        }
+        .listRowInsets(.init(top: 0, leading: 6, bottom: 0, trailing: 4))
+    }
+
+    private func deviceRow(_ device: SidebarLocation) -> some View {
+        HStack(spacing: 4) {
+            Button { navigate(SidebarFavorite(name: device.name, url: device.url, isDefault: true)) } label: {
+                Label(device.name, systemImage: device.systemImage).imageScale(.small)
+                    .frame(maxWidth: .infinity, alignment: .leading).contentShape(Rectangle()).frame(height: Self.compactRowHeight)
+            }.buttonStyle(.plain)
+            if device.isEjectable {
+                Button { eject(device) } label: {
+                    if store.ejectingDeviceIDs.contains(device.id) { ProgressView().controlSize(.mini) }
+                    else { Image(systemName: "eject.fill").font(.caption).foregroundStyle(.secondary).contentShape(Rectangle()) }
+                }
+                .buttonStyle(.plain).disabled(store.ejectingDeviceIDs.contains(device.id))
+                .help("\(device.name)を取り出す").accessibilityLabel("\(device.name)を取り出す")
+            }
+        }
+        .contextMenu { if device.isEjectable { Button("取り出す") { eject(device) }.disabled(store.ejectingDeviceIDs.contains(device.id)) } }
+        .listRowInsets(.init(top: 0, leading: 6, bottom: 0, trailing: 4))
+    }
+
+    private func recentRow(_ recent: SidebarRecentItem) -> some View {
+        Button { openRecent(recent) } label: {
+            Label(recent.url.lastPathComponent.isEmpty ? recent.url.path : recent.url.lastPathComponent,
+                  systemImage: !FileManager.default.fileExists(atPath: recent.url.path) ? "questionmark.diamond" : (recent.kind == .folder ? "folder" : "doc"))
+                .imageScale(.small).frame(maxWidth: .infinity, alignment: .leading).frame(height: Self.compactRowHeight)
+        }
+        .buttonStyle(.plain).help(recent.url.path(percentEncoded: false))
+        .contextMenu { Button("履歴から削除") { store.removeRecent(recent.url) } }
+        .listRowInsets(.init(top: 0, leading: 6, bottom: 0, trailing: 4))
+    }
+
+    private func eject(_ device: SidebarLocation) {
+        Task {
+            do { try await store.eject(device); NotificationCenter.default.post(name: .quadFinderSidebarDidEject, object: device.url) }
+            catch { NotificationCenter.default.post(name: .quadFinderSidebarEjectFailed, object: device.url, userInfo: ["error": error]) }
         }
     }
 }

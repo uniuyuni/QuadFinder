@@ -73,6 +73,34 @@ struct WorkspaceStateTests {
         #expect(store.pane(id: second)?.backwardHistory.count == 1)
     }
 
+    @Test func successfulEjectRelocatesEveryAffectedPaneOnly() {
+        let store = makeStore()
+        let first = store.state.activePaneID
+        store.addPane()
+        let second = store.state.activePaneID
+        store.addPane()
+        let unaffected = store.state.activePaneID
+        let volume = URL(fileURLWithPath: "/Volumes/USB")
+        let home = URL(fileURLWithPath: "/tmp/test-home")
+        store.navigate(paneID: first, to: volume.appendingPathComponent("one"))
+        store.navigate(paneID: second, to: volume.appendingPathComponent("two/deep"))
+        store.navigate(paneID: unaffected, to: URL(fileURLWithPath: "/Volumes/USB-other/keep"))
+        store.updatePane(id: first) { $0.accessBookmark = Data([1]); $0.selectedURLs = [volume] }
+
+        store.relocatePanesAfterEject(of: volume, homeURL: home)
+
+        #expect(store.pane(id: first)?.currentURL == home)
+        #expect(store.pane(id: second)?.currentURL == home)
+        #expect(store.pane(id: first)?.accessBookmark == nil)
+        #expect(store.pane(id: first)?.selectedURLs.isEmpty == true)
+        #expect(store.pane(id: unaffected)?.currentURL.path == "/Volumes/USB-other/keep")
+    }
+
+    @Test func ejectContainmentUsesComponentBoundaries() {
+        #expect(WorkspaceStore.contains(URL(fileURLWithPath: "/Volumes/USB/folder"), in: URL(fileURLWithPath: "/Volumes/USB")))
+        #expect(!WorkspaceStore.contains(URL(fileURLWithPath: "/Volumes/USB-Backup/folder"), in: URL(fileURLWithPath: "/Volumes/USB")))
+    }
+
     @Test func ratiosAreClamped() {
         let store = makeStore()
         store.setRatios(vertical: -1, horizontal: 2)

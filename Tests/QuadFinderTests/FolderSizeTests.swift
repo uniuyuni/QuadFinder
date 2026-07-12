@@ -25,9 +25,9 @@ struct FolderSizeTests {
         try FileManager.default.createDirectory(at: root, withIntermediateDirectories: true)
         for index in 0..<30 { try Data([1]).write(to: root.appendingPathComponent("\(index)")) }
         let task = Task {
-            try await FolderSizeCalculator().calculate(urls: [root], useCache: false) { progress in
+            try await FolderSizeCalculator().calculate(urls: [root], useCache: false, progress: { progress in
                 if progress.itemCount > 0 { withUnsafeCurrentTask { $0?.cancel() } }
-            }
+            })
         }
         await #expect(throws: CancellationError.self) { try await task.value }
     }
@@ -41,9 +41,9 @@ struct FolderSizeTests {
                                            contents: Data([1]))
         }
         let updates = ProgressRecorder()
-        let result = try await FolderSizeCalculator().calculate(urls: [root], useCache: false) { value in
+        let result = try await FolderSizeCalculator().calculate(urls: [root], useCache: false, progress: { value in
             await updates.append(value)
-        }
+        })
         let recorded = await updates.values
         #expect(result.itemCount == 2_000)
         #expect(recorded.last?.itemCount == result.itemCount)
@@ -51,6 +51,20 @@ struct FolderSizeTests {
         #expect(zip(recorded, recorded.dropFirst()).allSatisfy { pair in
             pair.0.itemCount <= pair.1.itemCount
         })
+    }
+
+    @Test func progressUsesHalfSecondThrottleWithImmediateEndpoints() async throws {
+        let root = FileManager.default.temporaryDirectory.appendingPathComponent(UUID().uuidString)
+        defer { try? FileManager.default.removeItem(at: root) }
+        try FileManager.default.createDirectory(at: root, withIntermediateDirectories: true)
+        for index in 0..<12 { FileManager.default.createFile(atPath: root.appendingPathComponent("\(index)").path, contents: Data([1])) }
+        let fake = FakeElapsedTime(step: .milliseconds(100))
+        let updates = ProgressRecorder()
+        let result = try await FolderSizeCalculator().calculate(urls: [root], useCache: false, elapsedTime: { fake.next() }) { await updates.append($0) }
+        let recorded = await updates.values
+        #expect(recorded.first?.itemCount == 0)
+        #expect(recorded.last?.itemCount == result.itemCount)
+        #expect(recorded.count == 4)
     }
 
     @Test func immediateRepeatUsesCachedResult() async throws {
@@ -61,7 +75,7 @@ struct FolderSizeTests {
         let calculator = FolderSizeCalculator()
         let first = try await calculator.calculate(urls: [root])
         let updates = ProgressRecorder()
-        let second = try await calculator.calculate(urls: [root]) { await updates.append($0) }
+        let second = try await calculator.calculate(urls: [root], progress: { await updates.append($0) })
         #expect(second == first)
         let cachedUpdates = await updates.values
         #expect(cachedUpdates.count == 1)
@@ -81,10 +95,16 @@ struct FolderSizeTests {
         try Data(repeating: 2, count: 99).write(to: file)
         await FolderSizeCalculator.invalidate(url: nested)
         let updates = ProgressRecorder()
-        let refreshed = try await calculator.calculate(urls: [root]) { await updates.append($0) }
+        let refreshed = try await calculator.calculate(urls: [root], progress: { await updates.append($0) })
         #expect(refreshed.logicalBytes == 99)
         #expect(await updates.values.last?.isCached == false)
     }
+}
+
+private final class FakeElapsedTime: @unchecked Sendable {
+    private let lock = NSLock(); private var value: Duration = .zero; private let step: Duration
+    init(step: Duration) { self.step = step }
+    func next() -> Duration { lock.lock(); defer { lock.unlock() }; let result = value; value += step; return result }
 }
 
 private actor ProgressRecorder {

@@ -25,20 +25,24 @@
 | Window scope | 3 | 実装済み | 単一`Window` scene。共有stateを持つ複製Windowを禁止 |
 | 細い境界とマウス操作 | 4 | 実装済み | visible 2pt／hit 10pt、NSView cursor rect、18pt全幅List、非消費event routing、行／空白部クリック |
 | Finder基本操作 | 4 | 実装済み | 4表示共通action model/menu、Command+C/X/V、clipboard減光、Space Quick Look、確認なしTrash、Get Info |
-| サイドバー・外部変更監視 | 4 | 実装済み | bookmark付きfavorite、既定100pt、非表示中の幅保持、mount通知、Trash、150ms debounce |
+| サイドバー・外部変更監視 | 4 | 実装済み | bookmark付きfavorite、既定100pt、非表示中の幅保持、18pt高密度行、mount通知、Trash、取り出し可能デバイスのeject UI・busy/error処理、成功時に該当全ペインをhomeへ復帰、150ms debounce |
 | 比較コピー・移動 | 4 | 実装済み | 専用sheet、4ポリシー、action summary、個別選択、stale再検証、Window Queue |
 | パンくず・ステータス行 | 4 | 実装済み | 各階層へ移動／パスコピー、項目・選択・容量表示 |
 | 4表示形式 | 4 | 実装済み | 全幅リスト、アイコン、任意深度カラム、lazy任意深度ツリー、symlink展開防止、狭幅対応表示メニュー |
 | Trash／symbolic link D&D | 4 | 実装済み | AppKit優先Trash destination、内部／外部payload、Command+Option link、全件競合preflight |
 | バージョン | 4 | 実装済み | `AppVersion.swift`と標準About panel |
-| Sidebar履歴・列ソート | 5 | 実装済み | 最近のfolder/file永続履歴、List/Tree共通sort、タブ単位保存 |
+| Sidebar履歴・列ソート | 5 | 実装済み | 最近のfolder/file永続履歴、List/Treeにfile論理size・更新日時・iCloud状態を表示、共通sort、タブ単位保存 |
 | 外部drag・進捗 | 5 | 実装済み | native file URL provider、link cursor、右上Queue summary |
 | 操作履歴・Undo/Redo | 5 | 実装・検証済み | versioned bounded journal、bookmark、fingerprint、実Trash URL、partial outcome、共有Queue、large確認。復元URL欠落stepのみ理由付き非Undo |
-| フォルダサイズ | 5 | 実装済み | 明示開始、async progress/cancel、symlink非追跡、partial error |
+| フォルダサイズ | 5 | 実装済み | 明示開始、async progress/cancel、symlink非追跡、partial error、0.5秒UI進捗coalesce、15秒cache、深い子変更からの祖先invalidation |
+| リスト／ツリーカラム | 5 | 実装済み | native header/cell同一配置、user resize、min/max clamp、ペイン・表示別幅保存、header sort |
+| アプリアイコン | 5 | 実装・検証済み | 独自原画、16〜1024pxの10 PNG、ICNS、配布appのCFBundleIconFile |
+| 画像表示モジュール | 6 | 実装・検証済み | ImageIO非同期downsample、zoom、選択追従、外部更新・stale load抑止 |
+| Hexビューアー | 6 | 実装・検証済み | bounded paging/LRU、offset/hex/ASCII、go-to、8/16/32 bytes、外部更新 |
 
 ## 自動テスト範囲
 
-2026-07-12統合検証: `swift build`警告なし、27スイート・122テスト成功、失敗0件。
+2026-07-13統合検証: `swift build`成功、29スイート・151テスト成功、失敗0件。
 
 - Phase 1: 全レイアウト、正規化、ナビゲーション、ペイン操作、D&Dソース判定、永続化、ファイル安全性
 - Phase 2: v1→v2移行、タブ独立性と移動・複製、宛先明示とURL固定、キュー順序・キャンセル・失敗継続、ペインセット破損分離、モジュール文脈
@@ -49,5 +53,7 @@
 - Finder drag: same/cross-volume×modifier操作マトリクス、native pasteboard、Dock delete mask、衝突時だけplannerへ遷移
 - Conflict auto rename: preview、競合race時の次候補、copy/move outcomeとUndo/Redo
 - APFS clone: clone高速経路、失敗時streaming fallback、対象外volumeのdeep-copy経路、atomic progress
+- Removable eject: ejectable判定、デバイスURL固定、busy状態解除、操作可能な日本語エラー
+- Folder size performance: 2,000項目の正確な集計、0.5秒未満の中間通知抑制、開始・最終通知、即時cache再利用、深い子変更による祖先cache無効化、cancel
 
 実際のpasteboard表現選択、マウス操作、VoiceOver、署名済みSandbox環境の外部ボリューム権限は手動検証対象です。

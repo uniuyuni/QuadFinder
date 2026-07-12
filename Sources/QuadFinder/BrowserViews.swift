@@ -221,6 +221,7 @@ struct TreeFileView: View {
     let clipboardIsCut: Bool
     let receiveDrop: ([URL], UUID?) -> Void
     let trashDropped: ([URL]) -> Void
+    let selectSort: (FileSortField) -> Void
     let contextMenu: NativeFinderContextMenuConfiguration
     @StateObject private var model = TreeBrowserModel()
 
@@ -234,6 +235,8 @@ struct TreeFileView: View {
             toggle: { model.toggle($0, showsHiddenFiles: showsHiddenFiles, bookmark: bookmark) },
             receiveDrop: receiveDrop,
             trashDropped: trashDropped,
+            sortDescriptor: sortDescriptor,
+            selectSort: selectSort,
             contextMenu: contextMenu
         )
     }

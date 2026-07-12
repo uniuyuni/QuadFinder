@@ -1,6 +1,34 @@
 import AppKit
 import SwiftUI
 
+enum NativeFileMetadataText {
+    static let dateFormatter: DateFormatter = {
+        let value = DateFormatter()
+        value.locale = .autoupdatingCurrent
+        value.dateStyle = .short
+        value.timeStyle = .short
+        return value
+    }()
+
+    static func size(_ item: FileItem) -> String {
+        guard !item.isDirectory, let size = item.size else { return "—" }
+        return ByteCountFormatter.string(fromByteCount: size, countStyle: .file)
+    }
+    static func modified(_ item: FileItem) -> String {
+        item.modificationDate.map(dateFormatter.string(from:)) ?? "—"
+    }
+    static func cloud(_ item: FileItem) -> String {
+        guard item.isUbiquitous else { return "" }
+        switch item.cloudDownloadStatus {
+        case URLUbiquitousItemDownloadingStatus.current.rawValue: return "端末内"
+        case URLUbiquitousItemDownloadingStatus.downloaded.rawValue: return "ダウンロード済み"
+        case URLUbiquitousItemDownloadingStatus.notDownloaded.rawValue: return "クラウドのみ"
+        case .some(let status) where status.localizedCaseInsensitiveContains("download"): return "ダウンロード中"
+        default: return "状態不明"
+        }
+    }
+}
+
 /// A Finder-style browser whose selection and drag session are both owned by
 /// NSTableView.  Do not add SwiftUI gestures or event monitors around this view.
 struct NativeFileTableView: NSViewRepresentable {
@@ -11,6 +39,9 @@ struct NativeFileTableView: NSViewRepresentable {
     let open: (FileItem) -> Void
     let receiveDrop: ([URL], UUID?) -> Void
     let trashDropped: ([URL]) -> Void
+    var showsHeader = false
+    var sortDescriptor: FileSortDescriptor? = nil
+    var selectSort: ((FileSortField) -> Void)? = nil
     var contextMenu: NativeFinderContextMenuConfiguration? = nil
 
     func makeCoordinator() -> Coordinator { Coordinator(self) }
@@ -29,16 +60,20 @@ struct NativeFileTableView: NSViewRepresentable {
         table.usesAlternatingRowBackgroundColors = true
         table.rowHeight = 18
         table.intercellSpacing = NSSize(width: 0, height: 0)
-        table.headerView = nil
+        table.headerView = coordinator.parent.showsHeader ? NSTableHeaderView() : nil
         table.target = coordinator
         table.doubleAction = #selector(Coordinator.openSelected)
         table.registerForDraggedTypes([.fileURL, NativeFileDragPasteboard.paneItemType])
         table.setDraggingSourceOperationMask([.copy, .move, .link], forLocal: true)
         table.setDraggingSourceOperationMask([.copy, .move, .delete, .link], forLocal: false)
 
-        let column = NSTableColumn(identifier: .init("file"))
-        column.resizingMask = .autoresizingMask
-        table.addTableColumn(column)
+        if coordinator.parent.showsHeader {
+            configureNativeFileColumns(on: table, paneID: coordinator.parent.paneID, mode: "list")
+        } else {
+            let column = NSTableColumn(identifier: NativeFileColumn.name.identifier)
+            column.resizingMask = .autoresizingMask
+            table.addTableColumn(column)
+        }
 
         let scroll = NSScrollView()
         scroll.documentView = table
@@ -68,42 +103,64 @@ struct NativeFileTableView: NSViewRepresentable {
         func tableView(_ tableView: NSTableView, viewFor tableColumn: NSTableColumn?, row: Int) -> NSView? {
             guard parent.items.indices.contains(row) else { return nil }
             let item = parent.items[row]
-            let id = NSUserInterfaceItemIdentifier("NativeFileCell")
-            let cell = (tableView.makeView(withIdentifier: id, owner: nil) as? NSTableCellView) ?? makeCell(id)
-            cell.imageView?.image = NSWorkspace.shared.icon(forFile: item.url.path)
-            cell.textField?.stringValue = item.name
+            guard let kind = tableColumn.flatMap({ NativeFileColumn(rawValue: $0.identifier.rawValue) }) else { return nil }
+            let id = NSUserInterfaceItemIdentifier("NativeFileCell.\(kind.rawValue)")
+            let cell = (tableView.makeView(withIdentifier: id, owner: nil) as? NSTableCellView) ?? makeCell(id, kind: kind)
+            if kind == .name { cell.imageView?.image = NSWorkspace.shared.icon(forFile: item.url.path) }
+            cell.textField?.stringValue = text(for: item, column: kind)
             cell.toolTip = item.url.path
             return cell
         }
 
-        private func makeCell(_ id: NSUserInterfaceItemIdentifier) -> NSTableCellView {
+        private func text(for item: FileItem, column: NativeFileColumn) -> String {
+            switch column { case .name: item.name; case .size: NativeFileMetadataText.size(item); case .modificationDate: NativeFileMetadataText.modified(item); case .cloud: NativeFileMetadataText.cloud(item) }
+        }
+
+        private func makeCell(_ id: NSUserInterfaceItemIdentifier, kind: NativeFileColumn) -> NSTableCellView {
             let cell = NSTableCellView()
             cell.identifier = id
-            let image = NSImageView(frame: .zero)
-            image.translatesAutoresizingMaskIntoConstraints = false
-            image.imageScaling = .scaleProportionallyUpOrDown
             let text = NSTextField(labelWithString: "")
             text.translatesAutoresizingMaskIntoConstraints = false
             text.lineBreakMode = .byTruncatingMiddle
             text.font = .systemFont(ofSize: 11.5)
-            cell.imageView = image
             cell.textField = text
-            cell.addSubview(image)
             cell.addSubview(text)
-            NSLayoutConstraint.activate([
-                image.leadingAnchor.constraint(equalTo: cell.leadingAnchor, constant: 4),
-                image.centerYAnchor.constraint(equalTo: cell.centerYAnchor),
-                image.widthAnchor.constraint(equalToConstant: 14), image.heightAnchor.constraint(equalToConstant: 14),
-                text.leadingAnchor.constraint(equalTo: image.trailingAnchor, constant: 5),
-                text.trailingAnchor.constraint(equalTo: cell.trailingAnchor, constant: -4),
-                text.centerYAnchor.constraint(equalTo: cell.centerYAnchor)
-            ])
+            if kind == .name {
+                let image = NSImageView(); image.translatesAutoresizingMaskIntoConstraints = false; image.imageScaling = .scaleProportionallyUpOrDown
+                cell.imageView = image; cell.addSubview(image)
+                NSLayoutConstraint.activate([image.leadingAnchor.constraint(equalTo: cell.leadingAnchor, constant: 4), image.centerYAnchor.constraint(equalTo: cell.centerYAnchor), image.widthAnchor.constraint(equalToConstant: 14), image.heightAnchor.constraint(equalToConstant: 14), text.leadingAnchor.constraint(equalTo: image.trailingAnchor, constant: 5)])
+            } else { text.leadingAnchor.constraint(equalTo: cell.leadingAnchor, constant: 4).isActive = true }
+            text.trailingAnchor.constraint(equalTo: cell.trailingAnchor, constant: -4).isActive = true
+            text.centerYAnchor.constraint(equalTo: cell.centerYAnchor).isActive = true
+            text.alignment = kind == .size ? .right : .left
             return cell
+        }
+
+        private func metadataLabel(tag: Int, alignment: NSTextAlignment = .left) -> NSTextField {
+            let label = NSTextField(labelWithString: "")
+            label.translatesAutoresizingMaskIntoConstraints = false
+            label.tag = tag
+            label.font = .systemFont(ofSize: 11.5)
+            label.textColor = .secondaryLabelColor
+            label.alignment = alignment
+            label.lineBreakMode = .byTruncatingTail
+            return label
         }
 
         func tableViewSelectionDidChange(_ notification: Notification) {
             guard !applyingSelection, let table else { return }
             commitSelection(table.selectedRowIndexes)
+        }
+
+        func tableView(_ tableView: NSTableView, sortDescriptorsDidChange oldDescriptors: [NSSortDescriptor]) {
+            guard let key = tableView.sortDescriptors.first?.key, let column = NativeFileColumn(rawValue: key) else { return }
+            parent.selectSort?(column.sortField)
+        }
+
+        func tableViewColumnDidResize(_ notification: Notification) {
+            guard let column = notification.userInfo?["NSTableColumn"] as? NSTableColumn,
+                  let kind = NativeFileColumn(rawValue: column.identifier.rawValue) else { return }
+            NativeColumnWidthStore().save(column.width, paneID: parent.paneID, mode: "list", column: kind)
         }
 
         func commitSelection(_ indexes: IndexSet) {
@@ -123,11 +180,20 @@ struct NativeFileTableView: NSViewRepresentable {
         }
 
         func reload(_ table: NSTableView) {
+            updateSortIndicator(table)
             applyingSelection = true
             table.reloadData()
             let indexes = IndexSet(parent.items.indices.filter { parent.selection.contains(parent.items[$0].url) })
             table.selectRowIndexes(indexes, byExtendingSelection: false)
             applyingSelection = false
+        }
+
+        private func updateSortIndicator(_ table: NSTableView) {
+            for column in table.tableColumns { table.setIndicatorImage(nil, in: column) }
+            guard let sort = parent.sortDescriptor,
+                  let kind = NativeFileColumn.allCases.first(where: { $0.sortField == sort.field }),
+                  let column = table.tableColumn(withIdentifier: kind.identifier) else { return }
+            table.setIndicatorImage(NSImage(named: sort.ascending ? "NSAscendingSortIndicator" : "NSDescendingSortIndicator"), in: column)
         }
 
         func dragEnded(_ session: NSDraggingSession, operation: NSDragOperation) {
