@@ -1,0 +1,123 @@
+# QuadFinder
+
+QuadFinderは、1つのmacOSウィンドウに最大4つの独立したファイルブラウザを配置するSwiftUI製ファイルマネージャです。製品仕様は [`docs/quad_pane_product_spec.md`](docs/quad_pane_product_spec.md) を参照してください。
+
+## 必要環境
+
+- macOS 14以降
+- Xcode 16以降（確認環境: Xcode 26.2 / Swift 6.2.3）
+
+外部パッケージには依存していません。
+
+## ビルド・起動・テスト
+
+```sh
+swift build
+swift run QuadFinder
+swift test
+```
+
+最新の統合検証では `swift build` が警告なしで成功し、27スイート・122テストが全件成功しています。
+
+Xcodeでは `Package.swift` を開き、`QuadFinder` スキームを選択して実行できます。
+
+### ローカル用 `.app` の作成
+
+Finderから直接起動できるRelease版は次で作成します。
+
+```sh
+./scripts/build_app.sh
+open dist/QuadFinder.app
+```
+
+スクリプトは `swift build -c release` を実行して `dist/QuadFinder.app` を作り、`AppVersion.swift` から `CFBundleShortVersionString` と `CFBundleVersion` を読み取ります。これにより開発版とアプリバンドルのバージョンを一箇所で管理します。生成物はローカル実行用のad-hoc署名（`codesign -`）です。外部パッケージや同梱すべき非システムFrameworkはありません（SwiftUI/AppKit等のmacOS標準Frameworkのみを利用）。
+
+第三者に配布するにはDeveloper ID Application証明書での署名、必要に応じたentitlement設定、Appleのnotarizationが別途必要です。ad-hoc署名版はその用途には使えません。
+
+## 実装済み（Phase 1〜4）
+
+- 1〜4ペインと、2ペインの左右・上下、3ペインの4形状、4ペインの2×2
+- 永続ペインIDと画面スロットを分離したモデル
+- ペインごとのURL、戻る/進む履歴、選択、隠しファイル設定
+- 非同期の基本リスト表示、フォルダ移動、親フォルダ移動、ファイルを既定アプリで開く
+- クリック、Control+Tab、Control+Shift+Tab、Control+1〜4、Control+Option+矢印によるアクティブペイン切替
+- ペイン追加、閉鎖、直前に閉じたペインの1回復元、位置交換、Esc対応の一時最大化
+- 分割比率のドラッグ変更、ダブルクリックで50:50復帰、アクセシビリティ調整アクション
+- ファイルURLのネイティブドラッグ＆ドロップ。Finder同様、同一ボリュームは移動（Optionでコピー）、別ボリュームはコピー（Commandで移動）、Command+Optionはsymbolic link。操作選択画面は出さず、同名衝突時だけ比較転送画面を表示
+- コピー/移動を明示確認し、開始時のソースURL、宛先URL、利用可能なsecurity-scoped bookmarkを固定
+- 同名項目を暗黙に上書きしない安全なファイル操作
+- 複数項目は既知のソース欠落、同名競合、自己内部コピーを全件事前検証してから実行
+- Application Support内JSONへの状態自動保存・復元
+- NSOpenPanelとsecurity-scoped bookmarkによるユーザー選択フォルダ権限の保存
+- ペイン単位の読み込み失敗表示。他ペインは継続動作
+- ペインごとに独立した複数タブ。各タブがURL、履歴、選択、表示設定、bookmarkを保持
+- タブの追加、選択、閉鎖、別ペインへの移動・複製。最後の1タブは閉じられない
+- workspace state v1からタブ付きv2への自動移行
+- 「他ペインへコピー／移動」。候補が複数ならペイン番号、フォルダ名、完全パスから明示選択
+- F5（コピー）とF6（移動）のメニューショートカット
+- ウィンドウ共有の直列操作キュー。待機中、実行中、完了、失敗、キャンセル、中止を表示。右端の進捗表示から個別ジョブを中止でき、完了済み項目はUndo履歴に保持
+- 待機ジョブの確実なキャンセル、実行中ジョブのベストエフォートキャンセル、完了履歴消去
+- 失敗したジョブの後も後続ジョブを継続し、ペインやタブを閉じても固定済みURLで処理を継続
+- 名前付きペインセットの保存、適用、削除。セットごとのJSONで破損を分離
+- Active／Pinned文脈の選択情報モジュールと、Window文脈の操作キューモジュール
+- モジュールの表示状態と文脈をworkspaceおよびペインセットへ保存
+- 2〜4ペインのリンクグループ。相対子フォルダ移動と同名選択追従、欠落時の非侵襲通知
+- Activeペインと明示した別ペインを固定するPair文脈
+- 名前・種類・サイズ・更新日時による非同期フォルダ比較と、任意のSHA-256 checksum比較
+- 比較結果のソースのみ／ターゲットのみ／差異／同一／エラー分類、進捗、キャンセル、再実行
+- 欠落項目のみ、片方向更新、片方向ミラーの同期プレビュー
+- 作成・上書き・削除の件数と完全パスを表示する二段階確認
+- 上書き・削除の明示許可、実行直前snapshot検証、Trash失敗時の安全な拒否
+- 同期ジョブのWindow共有キュー投入
+- URL＋隠しファイル条件による同時列挙のin-flight重複排除と2秒TTL cache
+- 手動再読み込み、Queue完了後の対象ペイン、移動元ペインではTTLを無視するfresh reload
+- 非表示ペインの列挙キャンセル、比較・checksumの非同期実行
+- iCloud/File Providerで取得可能なdownload状態の一覧表示と、未取得項目の比較エラー分類
+- workspace state v2からリンク・Pair設定を持つv3への自動移行
+- 単一Window sceneによるworkspace／Queueのウィンドウ共有事故防止
+- レイアウト占有2pt／ポインタ判定10ptのペイン境界、NSView cursor rect、ペイン空白部クリックでのアクティブ化
+- 行全体での選択、余白を除いた18ptの高密度リスト、アイコン表示、任意深度カラム／ツリー表示
+- ペインごとのクリック可能なパンくずパスと、項目数・選択数・選択容量を示すステータス行
+- Finder風サイドバー（よく使う項目・カスタムbookmark・Trash・マウント済みデバイス）、D&D追加・並べ替え・削除、表示幅と表示状態の保存
+- 全表示形式共通の右クリックメニュー。開く、Quick Look、新規タブ／別ペイン、コピー、カット、貼り付け、複製、名前変更、新規フォルダ、情報、パス、パッケージ内容、ゴミ箱
+- Command+C／X／V、Space Quick Look（再押下で閉じる）、Command+Delete。入力欄編集中のSpaceは文字入力を優先し、Cutは貼り付け成功までソースを変更しない
+- マウスイベントを消費しないペイン入力ルーター。1クリック選択、Command複数／Shift範囲選択、選択行からのドラッグ、ダブルクリックで開く操作を共存
+- 狭い4ペインでも操作が重ならない、表示形式（リスト／アイコン／カラム）のコンパクトメニュー
+- 表示中フォルダの外部変更監視、URL単位150ms debounce、自動fresh reload
+- ツールバーの優先Drop destinationへ内部payload／外部URLをD&Dし、確認なしでTrashへ移動。失敗時に完全削除へフォールバックしない
+- Command+C／X対象を全表示形式で50%減光し、外部clipboard変更で解除。アクセシビリティ値でもコピー／カット状態を通知
+- Command+Option+ドラッグで複数項目の絶対パスsymbolic linkを全件preflight後に作成。同名競合時は一件も変更しない
+- 同名競合時の比較コピー・移動シート。欠落のみ／新しい項目のみ／上書き／同期、action別summary、個別選択、二段階確認、実行直前stale検証、共有Window Queue実行
+- Cut receiptはpasteboard changeCount・セッション・URLを固定し、Queue全成功時だけ解除。失敗・取消・stale・clipboard変更時は維持
+- サイドバーの最近開いたフォルダ／実行ファイル履歴（最大20件、重複排除、永続化、消去）
+- リスト／ツリー共通の名前・サイズ・更新日時・クラウド列と、タブ単位で永続化する昇順／降順ソート
+- Dockのゴミ箱が認識するネイティブfile URLドラッグと、Command+Optionドラッグ中の標準リンクカーソル
+- 比較転送の「自動で名前を変更」。プレビュー後に同名項目が作られた場合も、既存項目を上書きせず次の連番へ進み、コピー／移動のUndo/Redoを保持
+- 同一APFSボリュームの通常ファイルコピーは`clonefile`によるコピーオンライトを優先。非対応ファイルシステム、別ボリューム、権限エラーでは中止可能なチャンクコピーへ自動フォールバック
+- リスト／ツリー表示はmacOSのlight/dark appearanceに追従する交互行背景
+- ウィンドウ右上の操作キュー進行表示（実行中・完了件数・待機数）
+- QuadFinder内の操作履歴journal、Command+Z／Shift+Command+Z、安全なrename/move/trashのUndo/Redo。20項目または100MB以上は確認
+- 「情報を見る」から明示実行する非同期フォルダサイズ計算。進捗・キャンセル・読取エラー件数に対応
+
+## バージョン
+
+開発版のバージョンは `Sources/QuadFinder/AppVersion.swift` の `marketing` と `build` で設定します。配布用Xcodeプロジェクトでは同じ値を `MARKETING_VERSION` と `CURRENT_PROJECT_VERSION` に設定してください。「QuadFinderについて」から現在値を確認できます。
+
+閉じたタブのUndoや「最近閉じたタブ」はPhase 2では提供しません。最後のタブ以外を閉じると、そのタブ固有の履歴・選択状態は破棄されます。保持したい場合は、先に別ペインへ移動または複製してください。
+
+## 現時点の制約
+
+- 双方向同期は競合規則が曖昧なため未実装です。片方向の3モードだけを提供します。
+- 通常ドロップは「コピー」「移動」を選ぶ安全確認方式です。Command+Optionを押したドロップだけはsymbolic link作成として処理します。
+- 操作履歴はQuadFinder自身が実行した操作だけが対象で、Finderなど外部アプリの操作は対象外です。copy、move、rename、新規フォルダ、duplicate、symbolic link、Trash、比較転送、同期の実成功stepをversion付きjournalへ保存します。作成物fingerprintと置換前項目の実Trash URLを検証して、共有操作Queue経由でUndo/Redoします。途中失敗時も成功済みstepだけを「一部完了」として記録します。OSがTrash復元URLを返さなかった個別stepだけは理由付きで取り消し不可になります。大量操作（20項目または100MB以上）のUndo/Redoは確認を求めます。
+- フォルダサイズはボタンを押すまで再帰走査しません。論理サイズを集計し、シンボリックリンクを追跡せず、package内部は通常のフォルダとして数えます。権限エラー時は読取可能分とエラー件数を表示します。
+- Dockゴミ箱へのドラッグ受理とOS標準リンクバッジはmacOSのDock／dragging sessionに依存するため、最終確認は実機で行ってください。
+- Swift Packageからの `swift run` は開発実行向けで、App Sandboxは強制されません。配布版はXcodeで署名とentitlement設定が必要です。
+- 分割比率は安全域20〜80%に制限しています。仕様の240×180 pt制約をウィンドウ実寸から厳密に計算する処理は今後の改善対象です。
+- ペインセットはbookmarkを含むworkspace状態を保存しますが、資格情報は保存しません。アクセス権が失効した場所は通常の復元不能表示になります。
+- 同期の削除・上書きはゴミ箱へ移動できる場合だけ実行します。ネットワーク共有等でTrashが利用できない場合、完全削除へフォールバックせずジョブを失敗させます。
+- snapshot検証後の実処理中に外部変更やI/O障害が起きた場合、完了済みactionの自動巻き戻しはありません。各actionの失敗はQueueに表示されます。
+- 現在は単一ウィンドウ製品です。複数WindowGroupは提供せず、1つのworkspaceとQueueを別ウィンドウが共有する構成を禁止しています。
+- File Providerのdownload要求自体は行いません。未ダウンロード項目は状態を示し、比較・同期対象から安全に除外します。
+- 未ダウンロードのFile Provider項目には一覧・比較・実行直前snapshotのいずれでもchecksum読取を行わず、暗黙downloadを開始しません。
+- アイコン表示のドラッグ矩形（rubber-band）選択は未実装です。クリック、Command追加選択、Shift範囲選択を使用してください。
