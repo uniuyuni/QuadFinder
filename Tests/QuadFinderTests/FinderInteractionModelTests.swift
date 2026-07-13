@@ -268,6 +268,23 @@ struct SidebarStoreTests {
         #expect(preferences.writeCount == baselineWrites + 1)
     }
 
+    @Test @MainActor func widthDragUsesStableGlobalCoordinateWhenHandleMoves() {
+        let preferences = MemorySidebarPreferences()
+        let store = SidebarStore(preferences: preferences, home: URL(fileURLWithPath: "/tmp/home"))
+        defer { store.stopObservingMounts() }
+        let baselineWrites = preferences.writeCount
+        // The handle's local origin may move with width, but absolute pointer X is monotonic.
+        store.updateWidthDrag(screenX: 505, startScreenX: 500)
+        #expect(store.width == 105)
+        store.updateWidthDrag(screenX: 510, startScreenX: 505)
+        #expect(store.width == 110)
+        store.updateWidthDrag(screenX: 515, startScreenX: 510)
+        #expect(store.width == 115)
+        #expect(preferences.writeCount == baselineWrites)
+        store.endWidthDrag()
+        #expect(preferences.writeCount == baselineWrites + 1)
+    }
+
     @Test @MainActor func recentFoldersAndFilesAreDeduplicatedCappedAndPersisted() {
         let preferences = MemorySidebarPreferences()
         let home = URL(fileURLWithPath: "/tmp/home")

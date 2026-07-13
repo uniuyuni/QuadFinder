@@ -29,13 +29,14 @@ struct FinderContextMenuView: View {
         Button("名前を変更…") { perform(.rename) }.disabled(!model.isEnabled(.rename))
         Button("新規フォルダ…") { perform(.newFolder) }.disabled(!model.isEnabled(.newFolder))
         Divider()
-        Button("ゴミ箱に入れる", role: .destructive) { perform(.trash) }
-            .disabled(!model.isEnabled(.trash))
         Button("情報を見る") { perform(.getInfo) }.disabled(!model.isEnabled(.getInfo))
         Button("パスをコピー") { perform(.copyPath) }.disabled(!model.isEnabled(.copyPath))
         Button("Finderに表示") { perform(.revealInFinder) }.disabled(!model.isEnabled(.revealInFinder))
         if model.isEnabled(.showPackageContents) {
             Button("パッケージの内容を表示") { perform(.showPackageContents) }
         }
+        Divider()
+        Button("ゴミ箱に入れる", role: .destructive) { perform(.trash) }
+            .disabled(!model.isEnabled(.trash))
     }
 }

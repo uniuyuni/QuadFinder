@@ -25,7 +25,7 @@
 | Window scope | 3 | 実装済み | 単一`Window` scene。共有stateを持つ複製Windowを禁止 |
 | 細い境界とマウス操作 | 4 | 実装済み | visible 2pt／hit 10pt、NSView cursor rect、18pt全幅List、非消費event routing、行／空白部クリック |
 | Finder基本操作 | 4 | 実装済み | 4表示共通action model/menu、Command+C/X/V、clipboard減光、Space Quick Look、確認なしTrash、Get Info |
-| サイドバー・外部変更監視 | 4 | 実装済み | bookmark付きfavorite、既定100pt、非表示中の幅保持、18pt高密度行、mount通知、Trash、取り出し可能デバイスのeject UI・busy/error処理、成功時に該当全ペインをhomeへ復帰、150ms debounce |
+| サイドバー・外部変更監視 | 4 | 実装済み | bookmark付きfavorite、既定100pt、非表示中の幅保持、14pt高密度行、グローバル座標基準の無振動リサイズ、mount通知、Trash、取り出し可能デバイスのeject UI・busy/error処理、成功時に該当全ペインをhomeへ復帰、150ms debounce |
 | 比較コピー・移動 | 4 | 実装済み | 専用sheet、4ポリシー、action summary、個別選択、stale再検証、Window Queue |
 | パンくず・ステータス行 | 4 | 実装済み | 各階層へ移動／パスコピー、項目・選択・容量表示 |
 | 4表示形式 | 4 | 実装済み | 全幅リスト、アイコン、任意深度カラム、lazy任意深度ツリー、symlink展開防止、狭幅対応表示メニュー |
@@ -42,7 +42,7 @@
 
 ## 自動テスト範囲
 
-2026-07-13統合検証: `swift build`成功、29スイート・151テスト成功、失敗0件。
+2026-07-13統合検証: `swift build`成功、30スイート・163テスト成功、失敗0件。右クリックの破壊的操作区画、「このアプリケーションで開く」、グローバル座標サイドバーリサイズを含む。
 
 - Phase 1: 全レイアウト、正規化、ナビゲーション、ペイン操作、D&Dソース判定、永続化、ファイル安全性
 - Phase 2: v1→v2移行、タブ独立性と移動・複製、宛先明示とURL固定、キュー順序・キャンセル・失敗継続、ペインセット破損分離、モジュール文脈

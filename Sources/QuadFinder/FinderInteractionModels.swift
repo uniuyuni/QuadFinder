@@ -602,6 +602,7 @@ final class SidebarStore: ObservableObject {
     /// committing only once avoids layout feedback making the divider jitter.
     @Published private(set) var width: Double
     private var dragOriginWidth: Double?
+    private var dragOriginScreenX: Double?
 
     private struct State: Codable {
         var version: Int?
@@ -660,9 +661,21 @@ final class SidebarStore: ObservableObject {
         width = Self.clampedWidth(origin + translation)
     }
 
+    /// Uses a fixed window/global coordinate so moving the divider cannot feed
+    /// back into the gesture's coordinate system and make the width oscillate.
+    func updateWidthDrag(screenX: Double, startScreenX: Double) {
+        if dragOriginScreenX == nil {
+            dragOriginScreenX = startScreenX
+            _ = beginWidthDrag()
+        }
+        guard let originX = dragOriginScreenX, let originWidth = dragOriginWidth else { return }
+        width = Self.clampedWidth(originWidth + screenX - originX)
+    }
+
     func endWidthDrag() {
         guard dragOriginWidth != nil else { return }
         dragOriginWidth = nil
+        dragOriginScreenX = nil
         save()
     }
 

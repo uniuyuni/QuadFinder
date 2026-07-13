@@ -256,14 +256,15 @@ private struct SidebarResizeHandle: View {
             Rectangle().fill(Color(nsColor: .separatorColor)).frame(width: 1)
         }
         .frame(width: 5)
+        .transaction { $0.animation = nil }
         .contentShape(Rectangle())
         .onHover { inside in
             hovering = inside
             if inside { NSCursor.resizeLeftRight.push() } else { NSCursor.pop() }
         }
-        .gesture(DragGesture(minimumDistance: 0)
+        .gesture(DragGesture(minimumDistance: 0, coordinateSpace: .global)
             .onChanged { value in
-                store.updateWidthDrag(translation: Double(value.translation.width))
+                store.updateWidthDrag(screenX: Double(value.location.x), startScreenX: Double(value.startLocation.x))
             }
             .onEnded { _ in store.endWidthDrag() })
         .accessibilityLabel("サイドバーの幅")

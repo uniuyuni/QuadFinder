@@ -354,8 +354,28 @@ struct PaneView: View {
             perform: { action, clicked, selection in
                 let urls = Array(PaneSelectionPolicy.contextTargets(clicked: clicked, selection: selection)).sorted { $0.path < $1.path }
                 performContextAction(action, urls: urls, pane: pane)
+            },
+            openWith: { applicationURL, clicked, selection in
+                let urls = Array(PaneSelectionPolicy.contextTargets(clicked: clicked, selection: selection))
+                open(urls: urls, with: applicationURL)
             }
         )
+    }
+
+    private func open(urls: [URL], with applicationURL: URL?) {
+        guard !urls.isEmpty else { return }
+        let launch: (URL) -> Void = { appURL in
+            let configuration = NSWorkspace.OpenConfiguration()
+            NSWorkspace.shared.open(urls, withApplicationAt: appURL, configuration: configuration)
+        }
+        if let applicationURL { launch(applicationURL); return }
+        let panel = NSOpenPanel()
+        panel.title = "アプリケーションを選択"
+        panel.prompt = "選択"
+        panel.directoryURL = URL(fileURLWithPath: "/Applications", isDirectory: true)
+        panel.canChooseFiles = true; panel.canChooseDirectories = false; panel.allowsMultipleSelection = false
+        panel.allowedContentTypes = [.application]
+        if panel.runModal() == .OK, let appURL = panel.url { launch(appURL) }
     }
 
     private func statusBar(_ pane: PaneState) -> some View {

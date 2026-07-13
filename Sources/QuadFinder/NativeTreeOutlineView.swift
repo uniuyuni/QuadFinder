@@ -171,6 +171,11 @@ struct NativeTreeOutlineView: NSViewRepresentable {
                                                action: #selector(performMenuAction(_:)))
         }
         @objc private func performMenuAction(_ sender: NSMenuItem) {
+            if let command = sender.representedObject as? NativeOpenWithCommand,
+               let clicked = contextClickedURL, let configuration = parent.contextMenu {
+                configuration.openWith(command.applicationURL, clicked, parent.selection)
+                return
+            }
             guard let raw = sender.representedObject as? String,
                   let action = FinderContextAction(rawValue: raw),
                   let clicked = contextClickedURL,

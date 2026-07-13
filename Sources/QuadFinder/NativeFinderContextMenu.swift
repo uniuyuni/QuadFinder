@@ -3,6 +3,12 @@ import AppKit
 struct NativeFinderContextMenuConfiguration {
     let model: (_ clickedURL: URL, _ selection: Set<URL>) -> FinderContextActionModel
     let perform: (_ action: FinderContextAction, _ clickedURL: URL, _ selection: Set<URL>) -> Void
+    let openWith: (_ applicationURL: URL?, _ clickedURL: URL, _ selection: Set<URL>) -> Void
+}
+
+final class NativeOpenWithCommand: NSObject {
+    let applicationURL: URL?
+    init(_ applicationURL: URL?) { self.applicationURL = applicationURL }
 }
 
 @MainActor
@@ -15,10 +21,12 @@ func makeNativeFinderContextMenu(
 ) -> NSMenu {
     let model = configuration.model(clickedURL, selection)
     let menu = NSMenu()
+    let targets = Array(PaneSelectionPolicy.contextTargets(clicked: clickedURL, selection: selection))
     let groups: [[(String, FinderContextAction)]] = [
         [("開く", .open), ("クイックルック", .quickLook), ("新規タブで開く", .openInNewTab)],
         [("カット", .cut), ("コピー", .copy), ("貼り付け", .paste), ("複製", .duplicate), ("名前を変更…", .rename), ("新規フォルダ…", .newFolder)],
-        [("ゴミ箱に入れる", .trash), ("情報を見る", .getInfo), ("パスをコピー", .copyPath), ("Finderに表示", .revealInFinder)]
+        [("情報を見る", .getInfo), ("パスをコピー", .copyPath), ("Finderに表示", .revealInFinder)],
+        [("ゴミ箱に入れる", .trash)]
     ]
     for (groupIndex, group) in groups.enumerated() {
         if groupIndex > 0 { menu.addItem(.separator()) }
@@ -28,6 +36,10 @@ func makeNativeFinderContextMenu(
             item.representedObject = finderAction.rawValue
             item.isEnabled = model.isEnabled(finderAction)
             menu.addItem(item)
+            if finderAction == .open, targets.count == 1,
+               !targets[0].hasDirectoryPath {
+                menu.addItem(makeOpenWithMenu(url: targets[0], target: target, action: action))
+            }
         }
     }
     if model.isEnabled(.showPackageContents) {
@@ -36,4 +48,42 @@ func makeNativeFinderContextMenu(
         menu.items.last?.representedObject = FinderContextAction.showPackageContents.rawValue
     }
     return menu
+}
+
+@MainActor
+private func makeOpenWithMenu(url: URL, target: AnyObject, action: Selector) -> NSMenuItem {
+    let parent = NSMenuItem(title: "このアプリケーションで開く", action: nil, keyEquivalent: "")
+    let submenu = NSMenu(title: parent.title)
+    let workspace = NSWorkspace.shared
+    let defaultURL = workspace.urlForApplication(toOpen: url)?.standardizedFileURL
+    var seen = Set<String>()
+    var applications = workspace.urlsForApplications(toOpen: url).map(\.standardizedFileURL)
+    if let defaultURL { applications.insert(defaultURL, at: 0) }
+    applications = applications.filter { seen.insert($0.path).inserted }
+    applications.sort {
+        if $0 == defaultURL { return true }
+        if $1 == defaultURL { return false }
+        return applicationName($0).localizedStandardCompare(applicationName($1)) == .orderedAscending
+    }
+    for appURL in applications {
+        let suffix = appURL == defaultURL ? "（デフォルト）" : ""
+        let item = NSMenuItem(title: applicationName(appURL) + suffix, action: action, keyEquivalent: "")
+        item.target = target
+        item.image = workspace.icon(forFile: appURL.path)
+        item.image?.size = NSSize(width: 16, height: 16)
+        item.representedObject = NativeOpenWithCommand(appURL)
+        submenu.addItem(item)
+    }
+    if !submenu.items.isEmpty { submenu.addItem(.separator()) }
+    let other = NSMenuItem(title: "その他…", action: action, keyEquivalent: "")
+    other.target = target
+    other.representedObject = NativeOpenWithCommand(nil)
+    submenu.addItem(other)
+    parent.submenu = submenu
+    return parent
+}
+
+private func applicationName(_ url: URL) -> String {
+    (try? url.resourceValues(forKeys: [.localizedNameKey]).localizedName)
+        ?? url.deletingPathExtension().lastPathComponent
 }
