@@ -466,19 +466,48 @@ final class WorkspaceStore: ObservableObject {
     func prepareDrop(sourcePaneID: UUID?, targetPaneID: UUID, urls: [URL]) {
         guard let target = pane(id: targetPaneID), !urls.isEmpty else { return }
         if let sourcePaneID, pane(id: sourcePaneID) == nil { return }
+        prepareDrop(
+            sourcePaneID: sourcePaneID,
+            targetPaneID: targetPaneID,
+            targetDirectoryURL: target.currentURL,
+            targetAccessBookmark: target.accessBookmark,
+            urls: urls
+        )
+    }
+
+    /// Finder-style destination used by sidebar rows.  A sidebar target does
+    /// not have to be open in a pane; the active pane ID is retained only as
+    /// the operation's UI owner while the actual destination URL/bookmark are
+    /// carried independently.
+    func prepareSidebarDrop(sourcePaneID: UUID?, targetDirectoryURL: URL,
+                            targetAccessBookmark: Data?, urls: [URL]) {
+        guard !urls.isEmpty else { return }
+        if let sourcePaneID, pane(id: sourcePaneID) == nil { return }
+        prepareDrop(
+            sourcePaneID: sourcePaneID,
+            targetPaneID: state.activePaneID,
+            targetDirectoryURL: targetDirectoryURL,
+            targetAccessBookmark: targetAccessBookmark,
+            urls: urls
+        )
+    }
+
+    private func prepareDrop(sourcePaneID: UUID?, targetPaneID: UUID,
+                             targetDirectoryURL: URL, targetAccessBookmark: Data?,
+                             urls: [URL]) {
         let modifiers = DropModifierResolver.resolve(
             current: NSApp?.currentEvent?.modifierFlags,
             tracked: DragModifierTracker.shared.trackedFlags
         )
         let nativeOperation = FinderDragOperationPolicy.operation(
-            sourceURLs: urls, targetDirectory: target.currentURL, modifiers: modifiers
+            sourceURLs: urls, targetDirectory: targetDirectoryURL, modifiers: modifiers
         )
         if nativeOperation == .link {
             let request = SymbolicLinkRequest(
                 sourceURLs: urls.map(\.standardizedFileURL),
-                targetDirectoryURL: target.currentURL.standardizedFileURL,
+                targetDirectoryURL: targetDirectoryURL.standardizedFileURL,
                 sourceAccessBookmark: sourcePaneID.flatMap { pane(id: $0)?.accessBookmark },
-                targetAccessBookmark: target.accessBookmark
+                targetAccessBookmark: targetAccessBookmark
             )
             do {
                 let targets = try SymbolicLinkService().createLinks(request)
@@ -488,7 +517,7 @@ final class WorkspaceStore: ObservableObject {
                 }
                 operationHistory.record(.init(kind: .symbolicLink, summary: "\(steps.count)個のシンボリックリンクを作成", steps: steps, itemCount: steps.count,
                                               sourceBookmark: request.sourceAccessBookmark, targetBookmark: request.targetAccessBookmark))
-                NotificationCenter.default.post(name: .quadFinderDirectoryDidChange, object: target.currentURL)
+                NotificationCenter.default.post(name: .quadFinderDirectoryDidChange, object: targetDirectoryURL)
             } catch let partial as PartialOperationFailure {
                 if partial.outcome.completedItems == 0, isPermissionFailure(partial.underlying) {
                     retrySymbolicLinkAfterAuthorization(request, sourcePaneID: sourcePaneID, targetPaneID: targetPaneID)
@@ -517,9 +546,9 @@ final class WorkspaceStore: ObservableObject {
             sourcePaneID: sourcePaneID,
             targetPaneID: targetPaneID,
             sourceURLs: urls.map(\.standardizedFileURL),
-            targetDirectoryURL: target.currentURL.standardizedFileURL,
+            targetDirectoryURL: targetDirectoryURL.standardizedFileURL,
             sourceAccessBookmark: sourcePaneID.flatMap { pane(id: $0)?.accessBookmark },
-            targetAccessBookmark: target.accessBookmark,
+            targetAccessBookmark: targetAccessBookmark,
             clipboardCutReceipt: nil
         )
         // Finder performs the operation selected by volume and live modifier

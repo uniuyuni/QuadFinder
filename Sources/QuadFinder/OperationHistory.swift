@@ -2,7 +2,7 @@ import Foundation
 import SwiftUI
 
 enum HistoryOperationKind: String, Codable, Sendable {
-    case copy, move, rename, newFolder, duplicate, trash, symbolicLink, sync, transfer
+    case copy, move, rename, newFolder, duplicate, trash, symbolicLink, sync, transfer, textEdit
 }
 
 struct HistoryReplayPlan: Sendable {
@@ -55,6 +55,7 @@ enum HistoryStep: Codable, Equatable, Sendable {
     case moved(from: URL, to: URL)
     case trashed(original: URL, trashURL: URL?)
     case replaced(source: URL, target: URL, oldTrashURL: URL?, sourceFingerprint: HistoryFingerprint, newFingerprint: HistoryFingerprint, movesSource: Bool)
+    case edited(file: URL, beforeBackup: URL, afterBackup: URL, beforeFingerprint: HistoryFingerprint, afterFingerprint: HistoryFingerprint)
 }
 
 extension HistoryStep {
@@ -62,6 +63,7 @@ extension HistoryStep {
         switch self {
         case .trashed(_, nil): "OSからゴミ箱内の復元URLを取得できませんでした"
         case .replaced(_, _, nil, _, _, _): "置換前項目のゴミ箱URLを取得できませんでした"
+        case .edited(_, let before, let after, _, _) where !FileManager.default.fileExists(atPath: before.path) || !FileManager.default.fileExists(atPath: after.path): "編集履歴のバックアップがありません"
         default: nil
         }
     }
@@ -190,6 +192,8 @@ final class OperationHistoryStore: ObservableObject {
         case .replaced(let source, let target, let old, _, let newFP, let moves):
             guard HistoryFingerprint.capture(target) == newFP, let old, FileManager.default.fileExists(atPath: old.path),
                   !moves || !FileManager.default.fileExists(atPath: source.path) else { throw HistoryError.unrestorable(target) }
+        case .edited(let file, let before, _, _, let afterFP):
+            guard HistoryFingerprint.capture(file) == afterFP, FileManager.default.fileExists(atPath: before.path) else { throw HistoryError.stale(file) }
         }
     }
 
@@ -206,6 +210,8 @@ final class OperationHistoryStore: ObservableObject {
         case .trashed(let original, _): guard FileManager.default.fileExists(atPath: original.path) else { throw HistoryError.stale(original) }
         case .replaced(let source, let target, _, let sourceFP, _, _):
             guard HistoryFingerprint.capture(source) == sourceFP, FileManager.default.fileExists(atPath: target.path) else { throw HistoryError.stale(source) }
+        case .edited(let file, _, let after, let beforeFP, _):
+            guard HistoryFingerprint.capture(file) == beforeFP, FileManager.default.fileExists(atPath: after.path) else { throw HistoryError.stale(file) }
         }
     }
 
@@ -238,6 +244,9 @@ final class OperationHistoryStore: ObservableObject {
                 var removed: NSURL?; try FileManager.default.trashItem(at: target, resultingItemURL: &removed)
             }
             try FileManager.default.moveItem(at: oldTrashURL, to: target)
+        case .edited(let file, let before, _, _, let afterFP):
+            guard HistoryFingerprint.capture(file) == afterFP else { throw HistoryError.stale(file) }
+            try restoreTextBackup(before, to: file)
         }
     }
 
@@ -277,7 +286,20 @@ final class OperationHistoryStore: ObservableObject {
             guard let newFP = HistoryFingerprint.capture(target) else { throw HistoryError.stale(target) }
             return .replaced(source: source, target: target, oldTrashURL: old as URL?,
                              sourceFingerprint: sourceFingerprint, newFingerprint: newFP, movesSource: movesSource)
+        case .edited(let file, _, let after, let beforeFP, let afterFP):
+            guard HistoryFingerprint.capture(file) == beforeFP else { throw HistoryError.stale(file) }
+            try restoreTextBackup(after, to: file)
+            guard HistoryFingerprint.capture(file) == afterFP else { throw HistoryError.stale(file) }
+            return step
         }
+    }
+
+    private func restoreTextBackup(_ backup: URL, to file: URL) throws {
+        guard FileManager.default.fileExists(atPath: backup.path) else { throw HistoryError.unrestorable(file) }
+        let temporary = file.deletingLastPathComponent().appendingPathComponent(".\(file.lastPathComponent).history-\(UUID().uuidString)")
+        defer { try? FileManager.default.removeItem(at: temporary) }
+        try FileManager.default.copyItem(at: backup, to: temporary)
+        _ = try FileManager.default.replaceItemAt(file, withItemAt: temporary)
     }
 
     private func load() {

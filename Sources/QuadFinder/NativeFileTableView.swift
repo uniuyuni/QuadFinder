@@ -203,8 +203,21 @@ struct NativeFileTableView: NSViewRepresentable {
         }
 
         @objc func openSelected() {
-            guard let table, table.clickedRow >= 0, parent.items.indices.contains(table.clickedRow) else { return }
-            parent.open(parent.items[table.clickedRow])
+            guard let table, let event = NSApp.currentEvent else { return }
+            openDoubleClicked(at: table.convert(event.locationInWindow, from: nil))
+        }
+
+        /// Opens only when the pointer is over the icon or rendered filename.
+        /// A row, metadata column, or the current selection is never a fallback.
+        func openDoubleClicked(at point: NSPoint) {
+            guard let table,
+                  NativeFileNameHitTesting.itemIndex(at: point, in: table) != nil else { return }
+            let row = table.row(at: point)
+            guard parent.items.indices.contains(row) else { return }
+            let item = parent.items[row]
+            let request = PointerOpenRequest(url: item.url, hitRegion: .content)
+            guard request.contentURL == item.url else { return }
+            parent.open(item)
         }
 
         func menu(for row: Int) -> NSMenu? {
@@ -254,6 +267,47 @@ struct NativeFileTableView: NSViewRepresentable {
             parent.receiveDrop(all, source)
             return true
         }
+    }
+}
+
+@MainActor enum NativeFileNameHitTesting {
+    static func itemIndex(at point: NSPoint, in table: NSTableView) -> Int? {
+        let row = table.row(at: point)
+        let column = table.column(at: point)
+        guard row >= 0, column >= 0,
+              table.tableColumns.indices.contains(column),
+              table.tableColumns[column].identifier == NativeFileColumn.name.identifier,
+              let cell = table.view(atColumn: column, row: row,
+                                    makeIfNecessary: false) as? NSTableCellView else { return nil }
+        let local = cell.convert(point, from: table)
+        let imageHit = cell.imageView.map {
+            $0.frame.insetBy(dx: -2, dy: -2).contains(local)
+        } ?? false
+        let textHit = cell.textField.map {
+            renderedTextRect(for: $0).insetBy(dx: -2, dy: -2).contains(local)
+        } ?? false
+        return imageHit || textHit ? row : nil
+    }
+
+    private static func renderedTextRect(for field: NSTextField) -> NSRect {
+        let measured = field.attributedStringValue.size()
+        let width = min(field.bounds.width, ceil(measured.width) + 1)
+        let height = min(field.bounds.height, max(ceil(measured.height), 1))
+        let local: NSRect
+        switch field.alignment {
+        case .center:
+            local = NSRect(x: (field.bounds.width - width) / 2,
+                           y: (field.bounds.height - height) / 2,
+                           width: width, height: height)
+        case .right:
+            local = NSRect(x: field.bounds.width - width,
+                           y: (field.bounds.height - height) / 2,
+                           width: width, height: height)
+        default:
+            local = NSRect(x: 0, y: (field.bounds.height - height) / 2,
+                           width: width, height: height)
+        }
+        return field.convert(local, to: field.superview)
     }
 }
 

@@ -14,28 +14,57 @@ struct QuadFinderApp: App {
         .defaultSize(width: 1200, height: 760)
         .commands {
             CommandGroup(replacing: .undoRedo) {
-                Button("取り消す") { workspace.undoLastFileOperation() }
+                Button("取り消す") {
+                    if !AppCommandRouting.sendTextAction(Selector(("undo:"))) {
+                        workspace.undoLastFileOperation()
+                    }
+                }
                     .keyboardShortcut("z", modifiers: [.command])
-                    .disabled(workspace.operationHistory.nextUndo == nil)
-                Button("やり直す") { workspace.redoLastFileOperation() }
+                Button("やり直す") {
+                    if !AppCommandRouting.sendTextAction(Selector(("redo:"))) {
+                        workspace.redoLastFileOperation()
+                    }
+                }
                     .keyboardShortcut("z", modifiers: [.command, .shift])
-                    .disabled(workspace.operationHistory.nextRedo == nil)
             }
             CommandGroup(replacing: .appInfo) {
                 Button("QuadFinderについて") { AppVersion.showAboutPanel() }
             }
             CommandGroup(replacing: .pasteboard) {
-                Button("コピー") { workspace.copySelectionToClipboard(cut: false) }
+                Button("コピー") {
+                    if !AppCommandRouting.sendTextAction(#selector(NSText.copy(_:))) {
+                        workspace.copySelectionToClipboard(cut: false)
+                    }
+                }
                     .keyboardShortcut("c", modifiers: [.command])
-                Button("カット") { workspace.copySelectionToClipboard(cut: true) }
+                Button("カット") {
+                    if !AppCommandRouting.sendTextAction(#selector(NSText.cut(_:))) {
+                        workspace.copySelectionToClipboard(cut: true)
+                    }
+                }
                     .keyboardShortcut("x", modifiers: [.command])
-                Button("貼り付け") { workspace.preparePasteFromClipboard() }
+                Button("貼り付け") {
+                    if !AppCommandRouting.sendTextAction(#selector(NSText.paste(_:))) {
+                        workspace.preparePasteFromClipboard()
+                    }
+                }
                     .keyboardShortcut("v", modifiers: [.command])
                 Divider()
                 Button("クイックルック") { workspace.quickLookSelection() }
                     .keyboardShortcut(.space, modifiers: [])
                 Button("ゴミ箱に入れる") { workspace.moveSelectionToTrash() }
                     .keyboardShortcut(.delete, modifiers: [.command])
+                Divider()
+                Button("すべてを選択") {
+                    if !AppCommandRouting.sendSelectAllToFirstResponder() {
+                        NotificationCenter.default.post(name: .quadFinderSelectAllInActivePane, object: nil)
+                    }
+                }
+                .keyboardShortcut("a", modifiers: [.command])
+            }
+            CommandGroup(replacing: .saveItem) {
+                Button("保存") { AppCommandRouting.sendSaveToFirstResponder() }
+                    .keyboardShortcut("s", modifiers: [.command])
             }
             CommandGroup(after: .newItem) {
                 Divider()
@@ -86,5 +115,26 @@ struct QuadFinderApp: App {
                     .keyboardShortcut(KeyEquivalent(Character("\u{F709}")), modifiers: [])
             }
         }
+    }
+}
+
+@MainActor
+enum AppCommandRouting {
+    static func isTextInput(_ responder: NSResponder?) -> Bool {
+        responder is NSTextView || responder is NSTextField
+    }
+
+    @discardableResult
+    static func sendTextAction(_ action: Selector) -> Bool {
+        guard isTextInput(NSApp.keyWindow?.firstResponder) else { return false }
+        return NSApp.sendAction(action, to: nil, from: nil)
+    }
+
+    static func sendSelectAllToFirstResponder() -> Bool {
+        NSApp.sendAction(#selector(NSText.selectAll(_:)), to: nil, from: nil)
+    }
+
+    static func sendSaveToFirstResponder() {
+        _ = NSApp.sendAction(Selector(("quadFinderSave:")), to: nil, from: nil)
     }
 }

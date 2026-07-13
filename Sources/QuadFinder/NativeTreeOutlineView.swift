@@ -7,6 +7,7 @@ import SwiftUI
 struct NativeTreeOutlineView: NSViewRepresentable {
     let paneID: UUID
     let rows: [TreeRow]
+    var expandedURLs: Set<URL> = []
     @Binding var selection: Set<URL>
     let activate: () -> Void
     let open: (FileItem) -> Void
@@ -82,6 +83,14 @@ struct NativeTreeOutlineView: NSViewRepresentable {
                 button.isHidden = !row.item.isDirectory || row.item.isSymbolicLink
                 button.identifier = .init(row.item.url.absoluteString)
                 button.frame.origin.x = CGFloat(row.depth * 14 + 2)
+                let isExpanded = parent.expandedURLs.contains(row.item.url)
+                button.image = NSImage(
+                    systemSymbolName: isExpanded ? "chevron.down" : "chevron.right",
+                    accessibilityDescription: isExpanded ? "フォルダを閉じる" : "フォルダを開く"
+                )
+                button.toolTip = isExpanded ? "フォルダを閉じる" : "フォルダを開く"
+                button.setAccessibilityLabel(isExpanded ? "フォルダを閉じる" : "フォルダを開く")
+                button.setAccessibilityValue(isExpanded ? "展開中" : "閉じています")
             }
             return cell
         }
@@ -116,6 +125,12 @@ struct NativeTreeOutlineView: NSViewRepresentable {
         }
 
         @objc private func toggleRow(_ sender: NSButton) {
+            // A disclosure control is a single-click control.  AppKit still
+            // delivers the second mouseDown of a double click to the control
+            // and the outline view can also receive its doubleAction.  Ignore
+            // that second action so a double click never collapses the folder
+            // again or opens an unrelated selected row.
+            if let event = NSApp.currentEvent, event.type == .leftMouseDown, event.clickCount > 1 { return }
             guard let raw = sender.identifier?.rawValue, let url = URL(string: raw),
                   let row = parent.rows.first(where: { $0.item.url == url }) else { return }
             parent.toggle(row.item)
@@ -158,8 +173,33 @@ struct NativeTreeOutlineView: NSViewRepresentable {
             if !urls.isEmpty { parent.trashDropped(urls) }
         }
         @objc func openSelected() {
-            guard let outline, outline.clickedRow >= 0, parent.rows.indices.contains(outline.clickedRow) else { return }
-            parent.open(parent.rows[outline.clickedRow].item)
+            guard let outline, let event = NSApp.currentEvent else { return }
+            openDoubleClicked(at: outline.convert(event.locationInWindow, from: nil))
+        }
+
+        /// Requires an icon/filename hit in the name column. Disclosure,
+        /// indentation, metadata, trailing whitespace and empty background do nothing.
+        func openDoubleClicked(at point: NSPoint) {
+            guard let outline,
+                  let row = NativeFileNameHitTesting.itemIndex(at: point, in: outline),
+                  parent.rows.indices.contains(row),
+                  !isDisclosureHit(row: row, point: point, outline: outline) else { return }
+            let item = parent.rows[row].item
+            let request = PointerOpenRequest(url: item.url, hitRegion: .content)
+            guard request.contentURL == item.url else { return }
+            parent.open(item)
+        }
+
+        private func isDisclosureHit(row: Int, point: NSPoint, outline: NSOutlineView) -> Bool {
+            let nameColumn = outline.column(withIdentifier: NativeFileColumn.name.identifier)
+            guard nameColumn >= 0,
+                  let cell = outline.view(atColumn: nameColumn, row: row,
+                                          makeIfNecessary: false),
+                  let disclosure = cell.viewWithTag(91), !disclosure.isHidden else { return false }
+            // Keep the narrow indentation gutter owned by the disclosure, not
+            // by the icon's forgiving hit padding.
+            return disclosure.frame.insetBy(dx: -3, dy: -2)
+                .contains(cell.convert(point, from: outline))
         }
         func menu(for row: Int) -> NSMenu? {
             guard let outline, parent.rows.indices.contains(row), let configuration = parent.contextMenu else { return nil }

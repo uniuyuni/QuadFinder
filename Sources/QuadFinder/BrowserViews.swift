@@ -229,6 +229,7 @@ struct TreeFileView: View {
         NativeTreeOutlineView(
             paneID: paneID,
             rows: model.rows(rootItems: rootItems, sortDescriptor: sortDescriptor),
+            expandedURLs: model.expanded,
             selection: $selection,
             activate: activate,
             open: open,

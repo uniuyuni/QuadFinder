@@ -2,6 +2,12 @@ import AppKit
 import SwiftUI
 import UniformTypeIdentifiers
 
+enum TabMenuPresentation {
+    static let accessibilityLabel = "タブ操作"
+    /// The borderless macOS Menu draws the only visible disclosure indicator.
+    static let customIndicatorSymbol: String? = nil
+}
+
 struct PaneView: View {
     @EnvironmentObject private var workspace: WorkspaceStore
     let paneID: UUID
@@ -53,8 +59,10 @@ struct PaneView: View {
                 PaneInputRouter(
                     isActivePane: { workspace.state.activePaneID == paneID },
                     activate: { workspace.activate(paneID) },
-                    openSelection: { openCurrentSelection() },
-                    toggleQuickLook: { toggleQuickLook() }
+                    toggleQuickLook: { toggleQuickLook() },
+                    selectAllVisible: {
+                        workspace.setSelection(Set(browser.items.map(\.url)), in: paneID)
+                    }
                 )
                 .allowsHitTesting(false)
             }
@@ -131,10 +139,15 @@ struct PaneView: View {
                             Button("タブを閉じる") { workspace.closeTab(tab.id, in: paneID) }
                                 .disabled(pane.tabs.count == 1)
                         } label: {
-                            Image(systemName: "chevron.down").font(.caption2)
+                            // A borderless macOS Menu supplies its own disclosure
+                            // indicator.  Drawing another chevron here produces two
+                            // adjacent triangles.
+                            EmptyView()
                         }
                         .menuStyle(.borderlessButton)
                         .fixedSize()
+                        .accessibilityLabel(TabMenuPresentation.accessibilityLabel)
+                        .help(TabMenuPresentation.accessibilityLabel)
                         Button { workspace.closeTab(tab.id, in: paneID) } label: {
                             Image(systemName: "xmark").font(.caption2)
                         }
@@ -555,12 +568,6 @@ struct PaneView: View {
             if let bookmark = workspace.pane(id: paneID)?.accessBookmark { info["bookmark"] = bookmark }
             NotificationCenter.default.post(name: .quadFinderRecentAccess, object: item.url, userInfo: info)
         }
-    }
-
-    private func openCurrentSelection() {
-        guard let pane = workspace.pane(id: paneID),
-              let url = pane.selectedURLs.sorted(by: { $0.path < $1.path }).first else { return }
-        openURL(url)
     }
 
     private func toggleQuickLook() {

@@ -1,3 +1,4 @@
+import AppKit
 import Foundation
 import Testing
 @testable import QuadFinder
@@ -5,7 +6,9 @@ import Testing
 @Suite("Finder interaction models")
 struct FinderInteractionModelTests {
     @Test @MainActor func sidebarUsesCompactFinderDensity() {
-        #expect(PersistentFinderSidebarView.compactRowHeight == 14)
+        #expect(PersistentFinderSidebarView.compactRowHeight == 20)
+        #expect(SidebarMetrics.iconSize == 16)
+        #expect(SidebarMetrics.fontSize == 12)
     }
     private func temporaryDirectory() throws -> URL {
         let url = FileManager.default.temporaryDirectory.appendingPathComponent(UUID().uuidString, isDirectory: true)
@@ -185,6 +188,257 @@ private final class MemorySidebarPreferences: SidebarPreferences, @unchecked Sen
     func setSidebarData(_ data: Data?, forKey key: String) { storage[key] = data; writeCount += 1 }
 }
 
+@Suite("Sidebar drop routing")
+struct SidebarDropResolverTests {
+    private let folder = URL(fileURLWithPath: "/tmp/folder", isDirectory: true)
+    private let file = URL(fileURLWithPath: "/tmp/file.txt")
+    private let target = URL(fileURLWithPath: "/Volumes/USB/target", isDirectory: true)
+
+    @Test func destinationRowsAlwaysRouteToFilesystemOperations() {
+        #expect(SidebarDropResolver.resolve(zone: .directory(target), urls: [file],
+                                            isDirectory: { _ in false }) == .transfer(target: target))
+        #expect(SidebarDropResolver.resolve(zone: .directory(target), urls: [folder],
+                                            isDirectory: { _ in true }) == .transfer(target: target))
+        #expect(SidebarDropResolver.resolve(zone: .trash, urls: [file]) == .trash)
+    }
+
+    @Test func onlyFolderURLsCanBeAddedAtFavoritesInsertionGaps() {
+        #expect(SidebarDropResolver.resolve(zone: .favoritesInsertion(2), urls: [folder],
+                                            isDirectory: { $0 == folder }) ==
+                .addFavorites(urls: [folder], index: 2))
+        #expect(SidebarDropResolver.resolve(zone: .favoritesInsertion(2), urls: [file],
+                                            isDirectory: { _ in false }) == .reject)
+        #expect(SidebarDropResolver.resolve(zone: .unavailable, urls: [folder],
+                                            isDirectory: { _ in true }) == .reject)
+    }
+
+    @Test func privateFavoritePayloadReordersOnlyInInsertionZone() {
+        let id = UUID()
+        #expect(SidebarDropResolver.resolve(zone: .favoritesInsertion(3), urls: [],
+                                            favoriteID: id) == .reorderFavorite(id: id, index: 3))
+        #expect(SidebarDropResolver.resolve(zone: .directory(target), urls: [],
+                                            favoriteID: id) == .reject)
+    }
+
+    @Test func favoriteRowUsesItsWholeUpperAndLowerHalvesForReordering() {
+        #expect(SidebarFavoriteDropPlacement.insertionIndex(
+            row: 3, pointerY: 13, rowHeight: 14
+        ) == 3)
+        #expect(SidebarFavoriteDropPlacement.insertionIndex(
+            row: 3, pointerY: 1, rowHeight: 14
+        ) == 4)
+        #expect(SidebarFavoriteDropPlacement.insertionIndex(
+            row: 0, pointerY: 7, rowHeight: 14
+        ) == 0)
+    }
+
+    @Test func externalFolderDropHasStableInsertionEdgesAndRowCenter() {
+        #expect(SidebarFavoriteDropPlacement.externalInsertionIndex(
+            row: 2, pointerY: 17, rowHeight: 18
+        ) == 2)
+        #expect(SidebarFavoriteDropPlacement.externalInsertionIndex(
+            row: 2, pointerY: 1, rowHeight: 18
+        ) == 3)
+        #expect(SidebarFavoriteDropPlacement.externalInsertionIndex(
+            row: 2, pointerY: 9, rowHeight: 18
+        ) == nil)
+    }
+
+    @Test func nativeFavoritePasteboardRoundTripsWithoutFileURL() throws {
+        let id = UUID()
+        let pasteboard = NSPasteboard(name: NSPasteboard.Name("FavoriteTest.\(UUID())"))
+        pasteboard.clearContents()
+        let item = NSPasteboardItem()
+        item.setData(try JSONEncoder().encode(SidebarFavoriteDragPayload(id: id)),
+                     forType: SidebarDraggingPasteboard.favoriteType)
+        pasteboard.writeObjects([item])
+        let content = SidebarDraggingPasteboard.contents(from: pasteboard)
+        #expect(content.favoriteID == id)
+        #expect(content.urls.isEmpty)
+        #expect(item.availableType(from: [.fileURL]) == nil)
+    }
+
+    @Test func destinationOperationUsesFinderModifierAndVolumeMatrix() {
+        #expect(FinderDragOperationPolicy.operation(modifiers: [], sameVolume: true) == .move)
+        #expect(FinderDragOperationPolicy.operation(modifiers: [.option], sameVolume: true) == .copy)
+        #expect(FinderDragOperationPolicy.operation(modifiers: [.command, .option], sameVolume: true) == .link)
+        #expect(FinderDragOperationPolicy.operation(modifiers: [], sameVolume: false) == .copy)
+        #expect(FinderDragOperationPolicy.operation(modifiers: [.command], sameVolume: false) == .move)
+        #expect(FinderDragOperationPolicy.operation(modifiers: [.command, .option], sameVolume: false) == .link)
+    }
+}
+
+@Suite("Native Favorites table integration")
+struct NativeSidebarFavoritesIntegrationTests {
+    @Test @MainActor func nativeContainerHeightIsDeterministicForEveryFavoriteCount() {
+        let table = SidebarFavoritesTableView()
+        table.rowHeight = NativeSidebarFavoritesView.rowHeight
+        table.intercellSpacing = .zero
+        let container = SidebarFavoritesContainerView(tableView: table)
+
+        for count in [0, 1, 5, 20] {
+            container.rowCount = count
+            #expect(container.contentHeight == CGFloat(count) * SidebarMetrics.rowHeight)
+            #expect(container.intrinsicContentSize.height == CGFloat(count) * SidebarMetrics.rowHeight)
+        }
+    }
+
+    @Test @MainActor func nativeContainerPinsRowsTopLeadingAndTracksWidth() throws {
+        let store = SidebarStore(preferences: MemorySidebarPreferences(),
+                                 home: URL(fileURLWithPath: "/tmp/home"))
+        defer { store.stopObservingMounts() }
+        let view = NativeSidebarFavoritesView(store: store, navigate: { _ in }, perform: { _, _, _, _ in })
+        let coordinator = NativeSidebarFavoritesView.Coordinator(parent: view)
+        let table = SidebarFavoritesTableView()
+        table.rowHeight = SidebarMetrics.rowHeight
+        table.intercellSpacing = .zero
+        table.headerView = nil
+        table.delegate = coordinator
+        table.dataSource = coordinator
+        let column = NSTableColumn(identifier: NSUserInterfaceItemIdentifier("favorite"))
+        column.resizingMask = .autoresizingMask
+        table.addTableColumn(column)
+        coordinator.table = table
+        let container = SidebarFavoritesContainerView(tableView: table)
+        container.rowCount = store.favorites.count
+        table.reloadData()
+
+        for width in [90.0, 180.0, 360.0] {
+            container.frame = NSRect(x: 0, y: 0, width: width, height: container.contentHeight)
+            container.layoutSubtreeIfNeeded()
+            #expect(table.frame.minX == 0)
+            #expect(abs(column.width - width) < 0.01)
+            let firstRowInContainer = container.convert(table.rect(ofRow: 0), from: table)
+            #expect(abs(firstRowInContainer.minY) < 0.01)
+            #expect(firstRowInContainer.minX == 0)
+            #expect(firstRowInContainer.width >= width)
+        }
+
+        let cell = try #require(coordinator.tableView(table, viewFor: column, row: 0) as? SidebarFavoriteCellView)
+        cell.frame = NSRect(x: 0, y: 0, width: 180, height: SidebarMetrics.rowHeight)
+        cell.layoutSubtreeIfNeeded()
+        let image = cell.iconView
+        let text = cell.titleField
+        #expect(image.frame.minX == SidebarMetrics.horizontalInset)
+        #expect(image.frame.size == NSSize(width: 16, height: 16))
+        #expect(abs(image.frame.midY - cell.bounds.midY) < 0.01)
+        #expect(text.frame.minX == SidebarMetrics.horizontalInset + SidebarMetrics.iconSize + SidebarMetrics.itemSpacing)
+        #expect(abs(text.frame.midY - cell.bounds.midY) < 0.01)
+        #expect(text.frame.maxX <= cell.bounds.maxX - SidebarMetrics.trailingInset)
+    }
+
+    @Test @MainActor func favoriteIconsPreserveColorAndRemainVisibleAcrossAppearances() throws {
+        let home = SidebarFavorite(name: "ホーム", url: URL(fileURLWithPath: "/tmp/home"), isDefault: true)
+        let custom = SidebarFavorite(name: "制作", url: URL(fileURLWithPath: "/tmp/custom"), isDefault: false)
+
+        #expect(SidebarFavoriteIcon.treatment(for: home) == .systemSymbol)
+        #expect(SidebarFavoriteIcon.symbolName(for: home) == "house.fill")
+        #expect(SidebarFavoriteIcon.image(for: home).isTemplate)
+        #expect(SidebarFavoriteIcon.treatment(for: custom) == .workspaceIcon)
+        #expect(SidebarFavoriteIcon.symbolName(for: custom) == nil)
+        #expect(!SidebarFavoriteIcon.image(for: custom).isTemplate)
+
+        let cell = SidebarFavoriteCellView(frame: NSRect(x: 0, y: 0, width: 180,
+                                                          height: SidebarMetrics.rowHeight))
+        for appearanceName in [NSAppearance.Name.aqua, .darkAqua] {
+            cell.appearance = NSAppearance(named: appearanceName)
+            cell.configure(icon: SidebarFavoriteIcon.image(for: home), treatment: .systemSymbol,
+                           selected: false, accessibilityLabel: home.name)
+            // System symbols are palette-coloured and made non-template before
+            // being placed in the source-list cell.  Keeping contentTintColor
+            // nil is intentional: source-list vibrancy can otherwise override
+            // the tint and draw the reusable cell as a black silhouette.
+            #expect(cell.iconView.contentTintColor == nil)
+            #expect(cell.iconView.image?.isTemplate == false)
+            let unselectedImage = cell.iconView.image
+            cell.setSelected(true)
+            #expect(cell.iconView.contentTintColor == nil)
+            #expect(cell.iconView.image?.isTemplate == false)
+            #expect(cell.iconView.image !== unselectedImage)
+            cell.configure(icon: SidebarFavoriteIcon.image(for: custom), treatment: .workspaceIcon,
+                           selected: false, accessibilityLabel: custom.name)
+            #expect(cell.iconView.contentTintColor == nil)
+            #expect(cell.iconView.image?.isTemplate == false)
+        }
+    }
+
+    @Test @MainActor func nativeTablePublishesPrivateReorderPayloadForEveryRow() throws {
+        let store = SidebarStore(preferences: MemorySidebarPreferences(),
+                                 home: URL(fileURLWithPath: "/tmp/home"))
+        defer { store.stopObservingMounts() }
+        let view = NativeSidebarFavoritesView(
+            store: store,
+            navigate: { _ in },
+            perform: { _, _, _, _ in }
+        )
+        let coordinator = NativeSidebarFavoritesView.Coordinator(parent: view)
+        let table = SidebarFavoritesTableView()
+        coordinator.table = table
+        table.dataSource = coordinator
+        table.delegate = coordinator
+
+        #expect(coordinator.numberOfRows(in: table) == store.favorites.count)
+        let writer = try #require(coordinator.tableView(table, pasteboardWriterForRow: 0) as? NSPasteboardItem)
+        let data = try #require(writer.data(forType: SidebarDraggingPasteboard.favoriteType))
+        let payload = try JSONDecoder().decode(SidebarFavoriteDragPayload.self, from: data)
+        #expect(payload.id == store.favorites[0].id)
+        #expect(writer.availableType(from: [.fileURL]) == nil)
+    }
+
+    @Test @MainActor func nativeTableReloadKeepsFavoriteIdentitySelected() {
+        let store = SidebarStore(preferences: MemorySidebarPreferences(),
+                                 home: URL(fileURLWithPath: "/tmp/home"))
+        defer { store.stopObservingMounts() }
+        let view = NativeSidebarFavoritesView(store: store, navigate: { _ in }, perform: { _, _, _, _ in })
+        let coordinator = NativeSidebarFavoritesView.Coordinator(parent: view)
+        let table = SidebarFavoritesTableView()
+        coordinator.table = table
+        table.dataSource = coordinator
+        table.delegate = coordinator
+        table.addTableColumn(NSTableColumn(identifier: NSUserInterfaceItemIdentifier("favorite")))
+        table.reloadData()
+        table.selectRowIndexes(IndexSet(integer: 1), byExtendingSelection: false)
+        let selectedID = store.favorites[1].id
+
+        store.moveFavorite(id: selectedID, toOffset: 4)
+        coordinator.reloadPreservingSelection()
+        #expect(table.selectedRow == store.favorites.firstIndex(where: { $0.id == selectedID }))
+    }
+
+    @Test @MainActor func twentyRapidEarlierAndLaterReordersStayUniqueAndPersist() {
+        let preferences = MemorySidebarPreferences()
+        let home = URL(fileURLWithPath: "/tmp/home")
+        var store: SidebarStore? = SidebarStore(preferences: preferences, home: home)
+        let movedID = store!.favorites[1].id
+        let count = store!.favorites.count
+        for cycle in 0..<20 {
+            store!.moveFavorite(id: movedID, toOffset: cycle.isMultiple(of: 2) ? count : 0)
+            #expect(store!.favorites.count == count)
+            #expect(Set(store!.favorites.map(\.id)).count == count)
+        }
+        let expectedOrder = store!.favorites.map(\.id)
+        store!.stopObservingMounts()
+        store = SidebarStore(preferences: preferences, home: home)
+        #expect(store!.favorites.map(\.id) == expectedOrder)
+        store!.stopObservingMounts()
+    }
+
+    @Test func nativeDropPlansNeverConfuseRowTransferAndInsertion() {
+        let favoriteID = UUID()
+        let folder = URL(fileURLWithPath: "/tmp/folder", isDirectory: true)
+        let file = URL(fileURLWithPath: "/tmp/file")
+        let target = URL(fileURLWithPath: "/tmp/target", isDirectory: true)
+        #expect(SidebarDropResolver.resolve(zone: .favoritesInsertion(2), urls: [],
+                                            favoriteID: favoriteID) == .reorderFavorite(id: favoriteID, index: 2))
+        #expect(SidebarDropResolver.resolve(zone: .directory(target), urls: [folder],
+                                            isDirectory: { _ in true }) == .transfer(target: target))
+        #expect(SidebarDropResolver.resolve(zone: .favoritesInsertion(2), urls: [folder],
+                                            isDirectory: { _ in true }) == .addFavorites(urls: [folder], index: 2))
+        #expect(SidebarDropResolver.resolve(zone: .favoritesInsertion(2), urls: [file],
+                                            isDirectory: { _ in false }) == .reject)
+    }
+}
+
 @Suite("Sidebar persistence")
 struct SidebarStoreTests {
     private actor EjectRecorder {
@@ -247,6 +501,31 @@ struct SidebarStoreTests {
         store?.remove(id: defaultID)
         #expect(store!.favorites.contains { $0.id == defaultID })
         store?.stopObservingMounts()
+    }
+
+    @Test @MainActor func internalFavoriteReorderDoesNotDuplicateRows() {
+        let store = SidebarStore(preferences: MemorySidebarPreferences(), home: URL(fileURLWithPath: "/tmp/home"))
+        defer { store.stopObservingMounts() }
+        let originalCount = store.favorites.count
+        let id = store.favorites[1].id
+        store.moveFavorite(id: id, toOffset: 4)
+        #expect(store.favorites.count == originalCount)
+        #expect(store.favorites[3].id == id)
+        #expect(Set(store.favorites.map(\.id)).count == originalCount)
+    }
+
+    @Test @MainActor func defaultFavoriteReorderPersistsAcrossReload() {
+        let preferences = MemorySidebarPreferences()
+        let home = URL(fileURLWithPath: "/tmp/home")
+        var store: SidebarStore? = SidebarStore(preferences: preferences, home: home)
+        let id = store!.favorites[0].id
+        store!.moveFavorite(id: id, toOffset: 4)
+        #expect(store!.favorites[3].id == id)
+        store!.stopObservingMounts()
+        store = SidebarStore(preferences: preferences, home: home)
+        #expect(store!.favorites[3].id == id)
+        #expect(store!.favorites[3].isDefault)
+        store!.stopObservingMounts()
     }
 
     @Test @MainActor func widthDragUsesFixedOriginClampsAndPersistsOnlyOnce() {

@@ -6,6 +6,7 @@ struct ContentView: View {
     @State private var showsPaneLinks = false
     @State private var showsOperationHistory = false
     @StateObject private var sidebarStore = SidebarStore()
+    @StateObject private var textEditorCloseRouter = TextEditorModuleCloseRouter()
 
     var body: some View {
         VStack(spacing: 0) {
@@ -107,6 +108,9 @@ struct ContentView: View {
     private var paneArea: some View {
         HStack(spacing: 0) {
             PaneGridView()
+                .frame(minWidth: ModulePanelLayout.paneMinimumWidth,
+                       maxWidth: .infinity,
+                       maxHeight: .infinity)
             if workspace.state.moduleSettings.selectionInfo.isVisible {
                 Divider()
                 SelectionInfoModuleView()
@@ -123,6 +127,27 @@ struct ContentView: View {
                     workspace.updateModuleSettings { $0.hexViewer.isVisible = false }
                 }
             }
+            if workspace.state.moduleSettings.textEditor.isVisible {
+                Divider()
+                TextEditorModuleView(
+                    selectedURLs: modulePane(workspace.state.moduleSettings.textEditor.context)?.selectedURLs ?? [],
+                    selectionPaneID: modulePaneID(workspace.state.moduleSettings.textEditor.context),
+                    restoreSelection: { paneID, selection in
+                        guard let paneID else { return }
+                        workspace.activate(paneID)
+                        workspace.setSelection(selection, in: paneID)
+                    },
+                    openHex: {
+                        workspace.updateModuleSettings {
+                            $0.hexViewer.isVisible = true
+                            $0.hexViewer.context = workspace.state.moduleSettings.textEditor.context
+                        }
+                    },
+                    commitClose: { workspace.updateModuleSettings { $0.textEditor.isVisible = false } },
+                    closeRouter: textEditorCloseRouter,
+                    history: workspace.operationHistory
+                )
+            }
         }
     }
 
@@ -130,6 +155,13 @@ struct ContentView: View {
         switch context {
         case .active, .window: workspace.activePane
         case .pinned(let id), .pair(let id, _): workspace.pane(id: id)
+        }
+    }
+
+    private func modulePaneID(_ context: ModuleContext) -> UUID? {
+        switch context {
+        case .active, .window: workspace.state.activePaneID
+        case .pinned(let id), .pair(let id, _): id
         }
     }
 
@@ -189,6 +221,16 @@ struct ContentView: View {
                 Toggle("Hexビューアー", isOn: Binding(
                     get: { workspace.state.moduleSettings.hexViewer.isVisible },
                     set: { value in workspace.updateModuleSettings { $0.hexViewer.isVisible = value } }
+                ))
+                Toggle("テキストエディタ", isOn: Binding(
+                    get: { workspace.state.moduleSettings.textEditor.isVisible },
+                    set: { value in
+                        if value {
+                            workspace.updateModuleSettings { $0.textEditor.isVisible = true }
+                        } else if !textEditorCloseRouter.requestClose() {
+                            workspace.updateModuleSettings { $0.textEditor.isVisible = false }
+                        }
+                    }
                 ))
             } label: { Label("モジュール", systemImage: "sidebar.right") }
             Button { showsPaneSets = true } label: { Label("セット", systemImage: "square.grid.2x2") }

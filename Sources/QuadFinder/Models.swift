@@ -215,6 +215,7 @@ enum ModuleKind: String, Codable, CaseIterable, Sendable {
     case operationQueue
     case imagePreview
     case hexViewer
+    case textEditor
 }
 
 enum ModuleContext: Codable, Equatable, Sendable {
@@ -235,8 +236,9 @@ struct ModuleSettings: Codable, Equatable, Sendable {
     var comparison = ModuleConfiguration(isVisible: false, context: .active)
     var imagePreview = ModuleConfiguration(isVisible: false, context: .active)
     var hexViewer = ModuleConfiguration(isVisible: false, context: .active)
+    var textEditor = ModuleConfiguration(isVisible: false, context: .active)
 
-    private enum CodingKeys: String, CodingKey { case selectionInfo, operationQueue, comparison, imagePreview, hexViewer }
+    private enum CodingKeys: String, CodingKey { case selectionInfo, operationQueue, comparison, imagePreview, hexViewer, textEditor }
 
     init() {}
 
@@ -251,6 +253,8 @@ struct ModuleSettings: Codable, Equatable, Sendable {
         imagePreview = try c.decodeIfPresent(ModuleConfiguration.self, forKey: .imagePreview)
             ?? ModuleConfiguration(isVisible: false, context: .active)
         hexViewer = try c.decodeIfPresent(ModuleConfiguration.self, forKey: .hexViewer)
+            ?? ModuleConfiguration(isVisible: false, context: .active)
+        textEditor = try c.decodeIfPresent(ModuleConfiguration.self, forKey: .textEditor)
             ?? ModuleConfiguration(isVisible: false, context: .active)
     }
 }
@@ -331,6 +335,9 @@ struct WorkspaceState: Codable, Equatable, Sendable {
         }
         if case .pinned(let id) = moduleSettings.hexViewer.context, !validIDs.contains(id) {
             moduleSettings.hexViewer.context = .active
+        }
+        if case .pinned(let id) = moduleSettings.textEditor.context, !validIDs.contains(id) {
+            moduleSettings.textEditor.context = .active
         }
         moduleSettings.operationQueue.context = .window
         if case .pair(let source, let target) = moduleSettings.comparison.context {
@@ -482,6 +489,7 @@ struct PendingFileOperation: Identifiable, Sendable {
 extension UTType {
     static let quadFinderPaneItem = UTType(exportedAs: "com.quadfinder.pane-item")
     static let quadFinderPaneBatch = UTType(exportedAs: "com.quadfinder.pane-item-batch")
+    static let quadFinderSidebarFavorite = UTType(exportedAs: "com.quadfinder.sidebar-favorite")
 }
 
 struct PaneFileDragPayload: Codable, Transferable, Sendable {
@@ -504,6 +512,17 @@ struct PaneFileDragBatchPayload: Codable, Transferable, Sendable {
 
     static var transferRepresentation: some TransferRepresentation {
         CodableRepresentation(contentType: .quadFinderPaneBatch)
+    }
+}
+
+/// Private representation used only to reorder Favorites.  It deliberately
+/// does not vend `public.file-url`: dropping a sidebar row must never be
+/// mistaken for moving the folder itself on disk.
+struct SidebarFavoriteDragPayload: Codable, Transferable, Sendable {
+    let id: UUID
+
+    static var transferRepresentation: some TransferRepresentation {
+        CodableRepresentation(contentType: .quadFinderSidebarFavorite)
     }
 }
 

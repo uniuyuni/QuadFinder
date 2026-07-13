@@ -203,6 +203,26 @@ struct WorkspaceStateTests {
         #expect(externalDrop.sourceAccessBookmark == nil)
     }
 
+    @Test func sidebarFolderDropQueuesAgainstRowURLWithoutChangingPaneDestination() throws {
+        let store = makeStore()
+        let sourceID = store.state.activePaneID
+        let sourceBookmark = Data("source-bookmark".utf8)
+        store.updatePane(id: sourceID) { $0.accessBookmark = sourceBookmark }
+        let paneDirectory = store.pane(id: sourceID)!.currentURL
+        let sidebarDirectory = URL(fileURLWithPath: "/tmp/sidebar-destination", isDirectory: true)
+        let targetBookmark = Data("target-bookmark".utf8)
+        let draggedURL = URL(fileURLWithPath: "/tmp/sidebar-source.txt")
+
+        store.prepareSidebarDrop(sourcePaneID: sourceID, targetDirectoryURL: sidebarDirectory,
+                                 targetAccessBookmark: targetBookmark, urls: [draggedURL])
+
+        let operation = try #require(store.operationQueue.jobs.last?.operation)
+        #expect(operation.targetDirectoryURL == sidebarDirectory)
+        #expect(operation.targetAccessBookmark == targetBookmark)
+        #expect(operation.sourceAccessBookmark == sourceBookmark)
+        #expect(store.pane(id: sourceID)?.currentURL == paneDirectory)
+    }
+
     @Test func dividerRatioUsesActualContainerExtent() {
         #expect(DividerMath.updatedRatio(start: 0.5, translation: 100, containerExtent: 1000) == 0.6)
         #expect(DividerMath.updatedRatio(start: 0.5, translation: -50, containerExtent: 500) == 0.4)

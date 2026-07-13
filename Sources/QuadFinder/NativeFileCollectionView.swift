@@ -114,8 +114,13 @@ struct NativeFileCollectionView: NSViewRepresentable {
 
         func open(at point: NSPoint) {
             guard let collection, let path = collection.indexPathForItem(at: point),
-                  parent.items.indices.contains(path.item) else { return }
-            parent.open(parent.items[path.item])
+                  parent.items.indices.contains(path.item),
+                  let cell = collection.item(at: path) as? NativeFileCollectionItem,
+                  cell.isOpenHit(pointInCollection: point, collection: collection) else { return }
+            let item = parent.items[path.item]
+            let request = PointerOpenRequest(url: item.url, hitRegion: .content)
+            guard request.contentURL == item.url else { return }
+            parent.open(item)
         }
 
         func menu(at point: NSPoint) -> NSMenu? {
@@ -243,6 +248,13 @@ struct NativeFileCollectionView: NSViewRepresentable {
         view.alphaValue = dimmed ? 0.5 : 1
         view.toolTip = item.url.path
         updateSelection()
+    }
+
+    func isOpenHit(pointInCollection point: NSPoint, collection: NSCollectionView) -> Bool {
+        let local = view.convert(point, from: collection)
+        let imageHit = imageView?.frame.insetBy(dx: -2, dy: -2).contains(local) ?? false
+        let titleHit = textField?.frame.insetBy(dx: -2, dy: -2).contains(local) ?? false
+        return imageHit || titleHit
     }
 
     override var isSelected: Bool { didSet { updateSelection() } }

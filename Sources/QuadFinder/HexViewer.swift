@@ -304,20 +304,3 @@ struct HexViewerModuleView: View {
             .frame(width: width, alignment: .leading)
     }
 }
-
-/// Shared side-module sizing contract.  A finite maximum prevents a module
-/// from consuming the pane grid when the window is narrow.
-enum ModulePanelLayout {
-    static let minimumWidth: CGFloat = 240
-    static let idealWidth: CGFloat = 320
-    static let maximumWidth: CGFloat = 560
-
-    /// Deterministic allocation used by tests and by future split-view work.
-    /// The pane always keeps its minimum before a side module is expanded.
-    static func moduleWidth(availableWidth: CGFloat,
-                            dividerWidth: CGFloat = 1,
-                            paneMinimumWidth: CGFloat = 180) -> CGFloat {
-        let room = max(0, availableWidth - dividerWidth - paneMinimumWidth)
-        return min(maximumWidth, max(0, min(idealWidth, room)))
-    }
-}

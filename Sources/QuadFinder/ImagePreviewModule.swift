@@ -189,7 +189,10 @@ struct ImagePreviewModuleView: View {
             footer
         }
         .padding(10)
-        .frame(minWidth: 240, idealWidth: 320)
+        .frame(minWidth: ModulePanelLayout.imagePolicy.minimumWidth,
+               idealWidth: ModulePanelLayout.imagePolicy.idealWidth,
+               maxWidth: ModulePanelLayout.imagePolicy.maximumWidth,
+               alignment: .topLeading)
         .background(.regularMaterial)
     }
 

@@ -3,8 +3,8 @@ import AppKit
 /// Single source of truth for development builds. Distribution builds may
 /// override these values with MARKETING_VERSION/CURRENT_PROJECT_VERSION.
 enum AppVersion {
-    static let marketing = "1.2.2"
-    static let build = "5"
+    static let marketing = "1.3.7"
+    static let build = "10"
 
     static var display: String { "Version \(marketing) (\(build))" }
 

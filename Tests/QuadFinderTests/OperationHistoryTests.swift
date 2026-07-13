@@ -150,4 +150,29 @@ struct OperationHistoryTests {
         #expect(queue.job(id: first)?.status == .stopped)
         #expect(queue.job(id: second)?.status == .stopped)
     }
+
+    @Test func textEditRestoresBackupsForUndoAndRedo() throws {
+        let root = FileManager.default.temporaryDirectory.appendingPathComponent(UUID().uuidString)
+        defer { try? FileManager.default.removeItem(at: root) }
+        try FileManager.default.createDirectory(at: root, withIntermediateDirectories: true)
+        let file = root.appendingPathComponent("note.txt")
+        let before = root.appendingPathComponent("before")
+        let after = root.appendingPathComponent("after")
+        try Data("old".utf8).write(to: file)
+        let beforeFP = try #require(HistoryFingerprint.capture(file))
+        try FileManager.default.copyItem(at: file, to: before)
+        try Data("new content".utf8).write(to: file)
+        let afterFP = try #require(HistoryFingerprint.capture(file))
+        try FileManager.default.copyItem(at: file, to: after)
+        let history = OperationHistoryStore(fileURL: root.appendingPathComponent("journal"))
+        history.record(.init(kind: .textEdit, summary: "edit", steps: [
+            .edited(file: file, beforeBackup: before, afterBackup: after,
+                    beforeFingerprint: beforeFP, afterFingerprint: afterFP)
+        ], itemCount: 1))
+
+        try history.undo()
+        #expect(try String(contentsOf: file, encoding: .utf8) == "old")
+        try history.redo()
+        #expect(try String(contentsOf: file, encoding: .utf8) == "new content")
+    }
 }

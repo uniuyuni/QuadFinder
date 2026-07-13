@@ -58,4 +58,40 @@ struct NativeFileTableIntegrationTests {
         coordinator.tableView(table, sortDescriptorsDidChange: [])
         #expect(selectedField == .size)
     }
+
+    @Test @MainActor func doubleClickOpensOnlyRenderedNameContent() throws {
+        let a = URL(fileURLWithPath: "/tmp/selected-a.txt")
+        let b = URL(fileURLWithPath: "/tmp/clicked-b.txt")
+        let items = [a, b].map { FileItem(url: $0, isDirectory: false, size: 3,
+            modificationDate: nil, isUbiquitous: false, cloudDownloadStatus: nil) }
+        var selected: Set<URL> = [a]
+        var opened: [URL] = []
+        let browser = NativeFileTableView(
+            paneID: UUID(), items: items,
+            selection: Binding(get: { selected }, set: { selected = $0 }),
+            activate: {}, open: { opened.append($0.url) },
+            receiveDrop: { _, _ in }, trashDropped: { _ in }, showsHeader: true
+        )
+        let coordinator = browser.makeCoordinator()
+        let scroll = NativeFileTableView.makeScrollView(coordinator: coordinator)
+        scroll.frame = NSRect(x: 0, y: 0, width: 700, height: 180)
+        let table = try #require(scroll.documentView as? NativeFileNSTableView)
+        coordinator.reload(table); scroll.layoutSubtreeIfNeeded(); table.layoutSubtreeIfNeeded()
+        let nameColumn = table.column(withIdentifier: NativeFileColumn.name.identifier)
+        let sizeColumn = table.column(withIdentifier: NativeFileColumn.size.identifier)
+        let nameCell = try #require(table.view(atColumn: nameColumn, row: 1, makeIfNecessary: true) as? NSTableCellView)
+        let sizeCell = try #require(table.view(atColumn: sizeColumn, row: 1, makeIfNecessary: true))
+        table.layoutSubtreeIfNeeded(); nameCell.layoutSubtreeIfNeeded()
+
+        let trailing = nameCell.convert(NSPoint(x: nameCell.bounds.maxX - 8, y: nameCell.bounds.midY), to: table)
+        coordinator.openDoubleClicked(at: trailing)
+        coordinator.openDoubleClicked(at: sizeCell.convert(NSPoint(x: sizeCell.bounds.midX, y: sizeCell.bounds.midY), to: table))
+        coordinator.openDoubleClicked(at: NSPoint(x: 20, y: table.bounds.maxY + 40))
+        #expect(opened.isEmpty)
+
+        let image = try #require(nameCell.imageView)
+        coordinator.openDoubleClicked(at: nameCell.convert(NSPoint(x: image.frame.midX, y: image.frame.midY), to: table))
+        #expect(opened == [b])
+        #expect(selected == [a])
+    }
 }
