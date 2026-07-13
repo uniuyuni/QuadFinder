@@ -6,9 +6,9 @@ import Testing
 @Suite("Finder interaction models")
 struct FinderInteractionModelTests {
     @Test @MainActor func sidebarUsesCompactFinderDensity() {
-        #expect(PersistentFinderSidebarView.compactRowHeight == 20)
+        #expect(PersistentFinderSidebarView.compactRowHeight == 24)
         #expect(SidebarMetrics.iconSize == 16)
-        #expect(SidebarMetrics.fontSize == 12)
+        #expect(SidebarMetrics.fontSize == 13)
     }
     private func temporaryDirectory() throws -> URL {
         let url = FileManager.default.temporaryDirectory.appendingPathComponent(UUID().uuidString, isDirectory: true)
