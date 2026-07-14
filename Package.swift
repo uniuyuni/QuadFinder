@@ -3,6 +3,7 @@ import PackageDescription
 
 let package = Package(
     name: "QuadFinder",
+    defaultLocalization: "en",
     platforms: [.macOS(.v14)],
     products: [
         .executable(name: "QuadFinder", targets: ["QuadFinder"])

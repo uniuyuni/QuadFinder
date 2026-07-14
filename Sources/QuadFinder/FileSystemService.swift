@@ -85,11 +85,11 @@ enum FileSystemError: LocalizedError {
 
     var errorDescription: String? {
         switch self {
-        case .destinationConflict(let url): "同名の項目が既に存在します: \(url.path)"
-        case .destinationNotDirectory(let url): "コピー先がフォルダではありません: \(url.path)"
-        case .sourceInsideDestination(let url): "フォルダをその内部へコピーまたは移動できません: \(url.path)"
-        case .noSources: "操作対象がありません。"
-        case .sourceUnavailable(let url): "操作元が見つかりません: \(url.path)"
+        case .destinationConflict(let url): L10n.format("同名の項目が既に存在します: %@", url.path)
+        case .destinationNotDirectory(let url): L10n.format("コピー先がフォルダではありません: %@", url.path)
+        case .sourceInsideDestination(let url): L10n.format("フォルダをその内部へコピーまたは移動できません: %@", url.path)
+        case .noSources: L10n.tr("操作対象がありません。")
+        case .sourceUnavailable(let url): L10n.format("操作元が見つかりません: %@", url.path)
         }
     }
 }

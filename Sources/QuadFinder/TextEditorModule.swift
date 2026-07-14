@@ -581,11 +581,11 @@ struct TextEditorModuleView: View {
     var body: some View {
         VStack(spacing: 5) {
             HStack(spacing: 6) {
-                Label("テキストエディタ", systemImage: "doc.text").font(.headline)
-                if isDocumentDirty { Circle().fill(.orange).frame(width: 7, height: 7).help("未保存") }
+                Label(L10n.tr("テキストエディタ"), systemImage: "doc.text").font(.headline)
+                if isDocumentDirty { Circle().fill(.orange).frame(width: 7, height: 7).help(L10n.tr("未保存")) }
                 Spacer()
                 Button { save() } label: { Image(systemName: "square.and.arrow.down") }.disabled(!isDocumentDirty)
-                Button("別名") { saveAs() }.disabled(model.state != .ready || model.isLarge)
+                Button(L10n.tr("別名")) { saveAs() }.disabled(model.state != .ready || model.isLarge)
                 Button(action: requestClose) { Image(systemName: "xmark") }
             }.buttonStyle(.borderless)
             controls
@@ -638,34 +638,34 @@ struct TextEditorModuleView: View {
         }
         .sheet(isPresented: $showCompare) { TextExternalComparisonView(url: model.url, edited: model.text) }
         .confirmationDialog(
-            "変更内容を保存しますか？",
+            L10n.tr("変更内容を保存しますか？"),
             isPresented: Binding(get: { showsDirtyPrompt }, set: { visible in
                 if !visible, transition.isPrompting { cancelTransition() }
             }),
             titleVisibility: .visible
         ) {
-            Button("保存") { saveAndContinueTransition() }
-            Button("変更を破棄", role: .destructive) { discardAndContinueTransition() }
-            Button("キャンセル", role: .cancel) { cancelTransition() }
+            Button(L10n.tr("保存")) { saveAndContinueTransition() }
+            Button(L10n.tr("変更を破棄"), role: .destructive) { discardAndContinueTransition() }
+            Button(L10n.tr("キャンセル"), role: .cancel) { cancelTransition() }
         } message: {
-            Text("\(model.url?.lastPathComponent ?? "このファイル")には保存されていない変更があります。")
+            Text(L10n.format("%@には保存されていない変更があります。", model.url?.lastPathComponent ?? L10n.tr("このファイル")))
         }
-        .alert("保存できません", isPresented: Binding(get: { error != nil }, set: {
+        .alert(L10n.tr("保存できません"), isPresented: Binding(get: { error != nil }, set: {
             if !$0 { error = nil; restoreEditorFocus() }
-        })) { Button("OK") {} } message: { Text(error ?? "") }
+        })) { Button(L10n.tr("OK")) {} } message: { Text(error ?? "") }
     }
 
     private var controls: some View {
         ScrollView(.horizontal) {
             HStack(spacing: 5) {
-                Picker("文字コード", selection: $model.encoding) { ForEach(TextDocumentEncoding.allCases) { Text($0.rawValue).tag($0) } }
+                Picker(L10n.tr("文字コード"), selection: $model.encoding) { ForEach(TextDocumentEncoding.allCases) { Text($0.rawValue).tag($0) } }
                     .labelsHidden().frame(width: 105).onChange(of: model.encoding) { _, value in Task { await model.reload(forced: value) } }
-                Picker("改行", selection: $model.newline) { ForEach(TextNewline.allCases, id: \.self) { Text($0.rawValue).tag($0) } }.labelsHidden().frame(width: 70)
-                Toggle("折返", isOn: $model.wraps).toggleStyle(.button)
-                Toggle("空白", isOn: $model.showsInvisibles).toggleStyle(.button)
+                Picker(L10n.tr("改行"), selection: $model.newline) { ForEach(TextNewline.allCases, id: \.self) { Text($0.rawValue).tag($0) } }.labelsHidden().frame(width: 70)
+                Toggle(L10n.tr("折返"), isOn: $model.wraps).toggleStyle(.button)
+                Toggle(L10n.tr("空白"), isOn: $model.showsInvisibles).toggleStyle(.button)
                 Stepper("\(Int(model.fontSize))", value: $model.fontSize, in: 9...28).frame(width: 70)
-                Picker("Tab", selection: $model.tabWidth) { Text("2").tag(2); Text("4").tag(4); Text("8").tag(8) }.labelsHidden().frame(width: 55)
-                TextField("行", text: $lineInput).frame(width: 45).onSubmit { requestedLine = Int(lineInput) }
+                Picker(L10n.tr("Tab"), selection: $model.tabWidth) { Text(L10n.tr("2")).tag(2); Text(L10n.tr("4")).tag(4); Text(L10n.tr("8")).tag(8) }.labelsHidden().frame(width: 55)
+                TextField(L10n.tr("行"), text: $lineInput).frame(width: 45).onSubmit { requestedLine = Int(lineInput) }
             }
             .controlSize(.small)
             .fixedSize(horizontal: true, vertical: false)
@@ -680,11 +680,11 @@ struct TextEditorModuleView: View {
     @ViewBuilder private var content: some View {
         switch model.state {
         case .empty:
-            ContentUnavailableView(selectedURLs.count > 1 ? "1つのファイルを選択してください" : "テキストファイルを選択してください", systemImage: "doc.text")
-        case .loading: ProgressView("読み込み中…").frame(maxWidth: .infinity, maxHeight: .infinity)
+            ContentUnavailableView(L10n.tr(selectedURLs.count > 1 ? "1つのファイルを選択してください" : "テキストファイルを選択してください"), systemImage: "doc.text")
+        case .loading: ProgressView(L10n.tr("読み込み中…")).frame(maxWidth: .infinity, maxHeight: .infinity)
         case .binary:
-            ContentUnavailableView { Label("バイナリファイルです", systemImage: "doc.badge.gearshape") } description: { Text("Hexビューアーで確認できます") } actions: { Button("Hexビューアーを開く", action: openHex) }
-        case .failed(let message): ContentUnavailableView("開けません", systemImage: "exclamationmark.triangle", description: Text(message))
+            ContentUnavailableView { Label(L10n.tr("バイナリファイルです"), systemImage: "doc.badge.gearshape") } description: { Text(L10n.tr("Hexビューアーで確認できます")) } actions: { Button(L10n.tr("Hexビューアーを開く"), action: openHex) }
+        case .failed(let message): ContentUnavailableView(L10n.tr("開けません"), systemImage: "exclamationmark.triangle", description: Text(message))
         case .ready:
             if model.isLarge, let url = model.url {
                 LargeTextEditorView(url: url, encoding: model.encoding, history: history,
@@ -700,17 +700,17 @@ struct TextEditorModuleView: View {
     }
 
     private var conflictBanner: some View {
-        HStack { Label("外部で変更されました", systemImage: "exclamationmark.triangle.fill"); Spacer()
-            Button("再読み込み") { Task { await model.reload() } }
-            Button("上書き") { save(overwriteExternal: true) }
-            Button("別名で保存") { saveAs() }
-            Button("比較") { showCompare = true }
-            Button("キャンセル") { model.dismissConflict() }
+        HStack { Label(L10n.tr("外部で変更されました"), systemImage: "exclamationmark.triangle.fill"); Spacer()
+            Button(L10n.tr("再読み込み")) { Task { await model.reload() } }
+            Button(L10n.tr("上書き")) { save(overwriteExternal: true) }
+            Button(L10n.tr("別名で保存")) { saveAs() }
+            Button(L10n.tr("比較")) { showCompare = true }
+            Button(L10n.tr("キャンセル")) { model.dismissConflict() }
         }.font(.caption).padding(5).background(.orange.opacity(0.18))
     }
 
     private var status: some View {
-        HStack { Text("行 \(model.line), 桁 \(model.column)"); if model.selectionCount > 0 { Text("選択 \(model.selectionCount)") }; Spacer(); Text(ByteCountFormatter.string(fromByteCount: Int64(model.byteCount), countStyle: .file)); Text(model.encoding.rawValue); Text(model.newline.rawValue) }.font(.caption2).foregroundStyle(.secondary)
+        HStack { Text(L10n.format("行 %1$lld, 桁 %2$lld", Int64(model.line), Int64(model.column))); if model.selectionCount > 0 { Text(L10n.format("選択 %lld", Int64(model.selectionCount))) }; Spacer(); Text(ByteCountFormatter.string(fromByteCount: Int64(model.byteCount), countStyle: .file)); Text(model.encoding.rawValue); Text(model.newline.rawValue) }.font(.caption2).foregroundStyle(.secondary)
     }
 
     private func save(overwriteExternal: Bool = false) {
@@ -831,7 +831,7 @@ struct TextEditorModuleView: View {
             step = .edited(file: outcome.target, beforeBackup: before, afterBackup: after,
                            beforeFingerprint: beforeFP, afterFingerprint: outcome.afterFingerprint)
         } else { step = .created(outcome.target) }
-        history.record(.init(kind: .textEdit, summary: "テキストを保存: \(outcome.target.lastPathComponent)",
+        history.record(.init(kind: .textEdit, summary: L10n.format("テキストを保存: %@", outcome.target.lastPathComponent),
                              steps: [step], itemCount: 1, byteCount: outcome.byteCount))
     }
 }
@@ -840,15 +840,15 @@ struct TextExternalComparisonView: View {
     let url: URL?
     let edited: String
     @Environment(\.dismiss) private var dismiss
-    @State private var external = "読み込み中…"
+    @State private var external = L10n.tr("読み込み中…")
     var body: some View {
         VStack {
-            HStack { Text("外部版と編集中版の比較").font(.headline); Spacer(); Button("閉じる") { dismiss() } }
+            HStack { Text(L10n.tr("外部版と編集中版の比較")).font(.headline); Spacer(); Button(L10n.tr("閉じる")) { dismiss() } }
             HSplitView {
-                VStack { Text("外部版").font(.caption); ScrollView { Text(external).textSelection(.enabled).frame(maxWidth: .infinity, alignment: .topLeading) } }
-                VStack { Text("編集中版").font(.caption); ScrollView { Text(edited).textSelection(.enabled).frame(maxWidth: .infinity, alignment: .topLeading) } }
+                VStack { Text(L10n.tr("外部版")).font(.caption); ScrollView { Text(external).textSelection(.enabled).frame(maxWidth: .infinity, alignment: .topLeading) } }
+                VStack { Text(L10n.tr("編集中版")).font(.caption); ScrollView { Text(edited).textSelection(.enabled).frame(maxWidth: .infinity, alignment: .topLeading) } }
             }.font(.system(size: 11, design: .monospaced))
         }.padding().frame(minWidth: 760, minHeight: 480)
-        .task { if let url { external = await Task.detached { (try? TextModuleIO.load(url).text) ?? "比較できません" }.value } }
+        .task { if let url { external = await Task.detached { (try? TextModuleIO.load(url).text) ?? L10n.tr("比較できません") }.value } }
     }
 }

@@ -91,7 +91,7 @@ struct FolderComparisonService: Sendable {
             let classified = ComparisonClassifier.classify(
                 source: sourceFingerprint,
                 target: targetFingerprint,
-                cloudError: cloudUnavailable.map { "未ダウンロードまたは状態不明: \($0.cloudDownloadStatus ?? "不明")" }
+                cloudError: cloudUnavailable.map { L10n.format("未ダウンロードまたは状態不明: %@", $0.cloudDownloadStatus ?? L10n.tr("不明")) }
             )
             entries.append(ComparisonEntry(
                 name: name,
@@ -193,7 +193,7 @@ final class ComparisonController: ObservableObject {
                 result = compared
             } catch is CancellationError {
                 guard generation == currentGeneration else { return }
-                errorMessage = "比較をキャンセルしました。"
+                errorMessage = L10n.tr("比較をキャンセルしました。")
             } catch {
                 guard generation == currentGeneration else { return }
                 errorMessage = error.localizedDescription

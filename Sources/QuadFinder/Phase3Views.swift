@@ -15,8 +15,8 @@ struct PaneLinkSheet: View {
 
     var body: some View {
         VStack(alignment: .leading, spacing: 14) {
-            Text("ペインリンク").font(.title2.bold())
-            Text("リンクする2〜4ペインを選択します。リンクはファイルを変更しません。")
+            Text(L10n.tr("ペインリンク")).font(.title2.bold())
+            Text(L10n.tr("リンクする2〜4ペインを選択します。リンクはファイルを変更しません。"))
             ForEach(Array(workspace.state.orderedPaneIDs.enumerated()), id: \.element) { index, id in
                 Toggle(isOn: Binding(
                     get: { selected.contains(id) },
@@ -24,19 +24,19 @@ struct PaneLinkSheet: View {
                 )) {
                     let pane = workspace.pane(id: id)
                     VStack(alignment: .leading) {
-                        Text("ペイン\(index + 1): \(pane?.currentURL.lastPathComponent ?? "")")
+                        Text(L10n.format("ペイン%1$lld: %2$@", Int64(index + 1), pane?.currentURL.lastPathComponent ?? ""))
                         Text(pane?.currentURL.path(percentEncoded: false) ?? "").font(.caption).foregroundStyle(.secondary)
                     }
                 }
             }
             Divider()
-            Toggle("同名の子フォルダへ相対ナビゲーション", isOn: $followsNavigation)
-            Toggle("同名項目の選択を追従", isOn: $followsSelection)
+            Toggle(L10n.tr("同名の子フォルダへ相対ナビゲーション"), isOn: $followsNavigation)
+            Toggle(L10n.tr("同名項目の選択を追従"), isOn: $followsSelection)
             HStack {
-                Button("リンク解除", role: .destructive) { workspace.clearPaneLinkGroup(); dismiss() }
+                Button(L10n.tr("リンク解除"), role: .destructive) { workspace.clearPaneLinkGroup(); dismiss() }
                 Spacer()
-                Button("キャンセル") { dismiss() }
-                Button("適用") {
+                Button(L10n.tr("キャンセル")) { dismiss() }
+                Button(L10n.tr("適用")) {
                     workspace.setPaneLinkGroup(selected, followsNavigation: followsNavigation, followsSelection: followsSelection)
                     dismiss()
                 }
@@ -61,14 +61,14 @@ struct ComparisonModuleView: View {
     var body: some View {
         VStack(spacing: 7) {
             HStack {
-                Label("フォルダ比較", systemImage: "arrow.left.arrow.right.square")
+                Label(L10n.tr("フォルダ比較"), systemImage: "arrow.left.arrow.right.square")
                     .font(.headline)
                 if let pair = workspace.comparisonPair {
                     Text(pairLabel(pair)).font(.caption).foregroundStyle(.secondary)
                 }
                 Spacer()
-                Toggle("Checksum", isOn: $usesChecksums).toggleStyle(.checkbox)
-                Button(controller.isRunning ? "キャンセル" : "比較") {
+                Toggle(L10n.tr("Checksum"), isOn: $usesChecksums).toggleStyle(.checkbox)
+                Button(L10n.tr(controller.isRunning ? "キャンセル" : "比較")) {
                     controller.isRunning ? controller.cancel() : workspace.startComparison(usesChecksums: usesChecksums)
                 }
                 Button {
@@ -76,35 +76,35 @@ struct ComparisonModuleView: View {
                 } label: { Image(systemName: "xmark") }.buttonStyle(.borderless)
             }
             if controller.isRunning {
-                ProgressView(value: controller.progress) { Text("比較中…") }
+                ProgressView(value: controller.progress) { Text(L10n.tr("比較中…")) }
             }
             if let error = controller.errorMessage { Text(error).foregroundStyle(.red).font(.caption) }
             if let result = controller.result {
                 HStack {
-                    Picker("同期モード", selection: $syncMode) {
-                        ForEach(SyncMode.allCases, id: \.self) { Text($0.rawValue).tag($0) }
+                    Picker(L10n.tr("同期モード"), selection: $syncMode) {
+                        ForEach(SyncMode.allCases, id: \.self) { Text($0.localizedTitle).tag($0) }
                     }.frame(width: 210)
-                    Toggle("上書きを許可", isOn: $allowsOverwrite).toggleStyle(.checkbox)
-                    Toggle("削除を許可", isOn: $allowsDelete).toggleStyle(.checkbox)
-                    Button("同期プレビュー") {
+                    Toggle(L10n.tr("上書きを許可"), isOn: $allowsOverwrite).toggleStyle(.checkbox)
+                    Toggle(L10n.tr("削除を許可"), isOn: $allowsDelete).toggleStyle(.checkbox)
+                    Button(L10n.tr("同期プレビュー")) {
                         do {
                             _ = try controller.makePreview(mode: syncMode, allowsOverwrite: allowsOverwrite, allowsDelete: allowsDelete)
                             showsPreview = true
                         } catch {
-                            workspace.report("同期プレビューを作成できません", error: error)
+                            workspace.report(L10n.tr("同期プレビューを作成できません"), error: error)
                         }
                     }
                     Spacer()
                     summary(result)
                 }
                 Table(result.entries) {
-                    TableColumn("名前", value: \.name)
-                    TableColumn("分類") { Text($0.classification.rawValue).foregroundStyle(color($0.classification)) }
-                    TableColumn("種類") { Text(($0.source ?? $0.target)?.isDirectory == true ? "フォルダ" : "ファイル") }
-                    TableColumn("サイズ") { entry in
+                    TableColumn(L10n.tr("名前"), value: \.name)
+                    TableColumn(L10n.tr("分類")) { Text($0.classification.localizedTitle).foregroundStyle(color($0.classification)) }
+                    TableColumn(L10n.tr("種類")) { Text(L10n.tr(($0.source ?? $0.target)?.isDirectory == true ? "フォルダ" : "ファイル")) }
+                    TableColumn(L10n.tr("サイズ")) { entry in
                         Text(ByteCountFormatter.string(fromByteCount: entry.source?.size ?? entry.target?.size ?? 0, countStyle: .file))
                     }
-                    TableColumn("状態") { Text($0.message ?? "") }
+                    TableColumn(L10n.tr("状態")) { Text($0.message ?? "") }
                 }
                 .frame(minHeight: 130, maxHeight: 230)
             }
@@ -120,12 +120,12 @@ struct ComparisonModuleView: View {
 
     private func pairLabel(_ pair: (UUID, UUID)) -> String {
         let ids = workspace.state.orderedPaneIDs
-        return "ペイン\((ids.firstIndex(of: pair.0) ?? 0) + 1) → ペイン\((ids.firstIndex(of: pair.1) ?? 0) + 1)"
+        return L10n.format("ペイン%1$lld → ペイン%2$lld", Int64((ids.firstIndex(of: pair.0) ?? 0) + 1), Int64((ids.firstIndex(of: pair.1) ?? 0) + 1))
     }
 
     private func summary(_ result: FolderComparisonResult) -> some View {
         let changed = result.entries.count { $0.classification != .equal }
-        return Text("\(result.entries.count)項目・差異\(changed)件").font(.caption).foregroundStyle(.secondary)
+        return Text(L10n.format("%1$lld項目・差異%2$lld件", Int64(result.entries.count), Int64(changed))).font(.caption).foregroundStyle(.secondary)
     }
 
     private func color(_ classification: ComparisonClassification) -> Color {
@@ -151,31 +151,31 @@ struct SyncPreviewSheet: View {
 
     var body: some View {
         VStack(alignment: .leading, spacing: 10) {
-            Text("同期プレビュー — \(plan.mode.rawValue)").font(.title2.bold())
-            Text("作成 \(plan.createCount)・上書き \(plan.overwriteCount)・削除 \(plan.deleteCount)")
+            Text(L10n.format("同期プレビュー — %@", plan.mode.localizedTitle)).font(.title2.bold())
+            Text(L10n.format("作成 %1$lld・上書き %2$lld・削除 %3$lld", Int64(plan.createCount), Int64(plan.overwriteCount), Int64(plan.deleteCount)))
             if blocked {
-                Text("上書きまたは削除が許可されていません。前の画面で明示的に有効化してプレビューを作り直してください。")
+                Text(L10n.tr("上書きまたは削除が許可されていません。前の画面で明示的に有効化してプレビューを作り直してください。"))
                     .foregroundStyle(.red)
             }
             List(plan.actions) { action in
                 VStack(alignment: .leading, spacing: 2) {
-                    Text(action.kind.rawValue).bold()
-                    if let source = action.sourceURL { Text("元: \(source.path(percentEncoded: false))").font(.caption) }
-                    Text("先: \(action.targetURL.path(percentEncoded: false))").font(.caption)
+                    Text(action.kind.localizedTitle).bold()
+                    if let source = action.sourceURL { Text(L10n.format("元: %@", source.path(percentEncoded: false))).font(.caption) }
+                    Text(L10n.format("先: %@", action.targetURL.path(percentEncoded: false))).font(.caption)
                 }
             }
-            Toggle("すべての完全パスと操作内容を確認しました", isOn: $reviewed)
+            Toggle(L10n.tr("すべての完全パスと操作内容を確認しました"), isOn: $reviewed)
             HStack {
-                Text("削除と上書きはゴミ箱経由です。完全削除は行いません。")
+                Text(L10n.tr("削除と上書きはゴミ箱経由です。完全削除は行いません。"))
                     .font(.caption).foregroundStyle(.secondary)
                 Spacer()
-                Button("戻る") { dismiss() }
-                Button("キューへ投入") {
+                Button(L10n.tr("戻る")) { dismiss() }
+                Button(L10n.tr("キューへ投入")) {
                     do {
                         workspace.enqueueSync(try controller.confirmedPlan())
                         dismiss()
                     } catch {
-                        workspace.report("同期を開始できません", error: error)
+                        workspace.report(L10n.tr("同期を開始できません"), error: error)
                     }
                 }
                 .keyboardShortcut(.defaultAction)

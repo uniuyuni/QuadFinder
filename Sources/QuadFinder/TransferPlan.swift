@@ -7,6 +7,8 @@ enum TransferConflictPolicy: String, CaseIterable, Sendable {
     case replace = "上書き"
     case synchronize = "同期（ターゲットを一致）"
     case autoRename = "自動で名前を変更"
+
+    var localizedTitle: String { L10n.tr(rawValue) }
 }
 
 enum TransferPlanActionKind: String, Sendable {
@@ -16,6 +18,8 @@ enum TransferPlanActionKind: String, Sendable {
     case trashTarget = "ターゲットから削除"
     case skip = "変更なし"
     case autoRename = "名前を変更"
+
+    var localizedTitle: String { L10n.tr(rawValue) }
 
     var isDestructive: Bool { self == .replace || self == .trashTarget }
     var isExecutable: Bool { self != .skip && self != .merge }
@@ -99,17 +103,17 @@ enum TransferPlanError: LocalizedError, Equatable {
 
     var errorDescription: String? {
         switch self {
-        case .noSources: "操作対象がありません。"
-        case .sourceUnavailable(let url): "操作元が見つかりません: \(url.path)"
-        case .destinationNotDirectory(let url): "コピー先がフォルダではありません: \(url.path)"
-        case .duplicateTarget(let url): "複数の項目が同じコピー先になります: \(url.path)"
-        case .selfCopy(let url): "項目を同じ場所へコピーまたは移動できません: \(url.path)"
-        case .sourceInsideDestination(let url): "フォルダをその内部へコピーまたは移動できません: \(url.path)"
-        case .stalePlan: "確認後にファイル構成が変化しました。プレビューを作り直してください。"
-        case .confirmationRequired: "実行前の確認が完了していません。"
-        case .overwriteNotConfirmed: "上書きが明示的に確認されていません。"
-        case .deletionNotConfirmed: "削除が明示的に確認されていません。"
-        case .trashUnavailable(let url): "項目をゴミ箱へ移動できません。完全削除は行いません: \(url.path)"
+        case .noSources: L10n.tr("操作対象がありません。")
+        case .sourceUnavailable(let url): L10n.format("操作元が見つかりません: %@", url.path)
+        case .destinationNotDirectory(let url): L10n.format("コピー先がフォルダではありません: %@", url.path)
+        case .duplicateTarget(let url): L10n.format("複数の項目が同じコピー先になります: %@", url.path)
+        case .selfCopy(let url): L10n.format("項目を同じ場所へコピーまたは移動できません: %@", url.path)
+        case .sourceInsideDestination(let url): L10n.format("フォルダをその内部へコピーまたは移動できません: %@", url.path)
+        case .stalePlan: L10n.tr("確認後にファイル構成が変化しました。プレビューを作り直してください。")
+        case .confirmationRequired: L10n.tr("実行前の確認が完了していません。")
+        case .overwriteNotConfirmed: L10n.tr("上書きが明示的に確認されていません。")
+        case .deletionNotConfirmed: L10n.tr("削除が明示的に確認されていません。")
+        case .trashUnavailable(let url): L10n.format("項目をゴミ箱へ移動できません。完全削除は行いません: %@", url.path)
         }
     }
 }

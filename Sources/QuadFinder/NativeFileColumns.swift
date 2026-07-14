@@ -6,10 +6,10 @@ enum NativeFileColumn: String, CaseIterable, Sendable {
     var identifier: NSUserInterfaceItemIdentifier { .init(rawValue) }
     var title: String {
         switch self {
-        case .name: "名前"
-        case .size: "サイズ"
-        case .modificationDate: "更新日"
-        case .cloud: "クラウド状態"
+        case .name: L10n.tr("名前")
+        case .size: L10n.tr("サイズ")
+        case .modificationDate: L10n.tr("更新日")
+        case .cloud: L10n.tr("クラウド状態")
         }
     }
     var defaultWidth: CGFloat {
@@ -69,7 +69,7 @@ func configureNativeFileColumns(on table: NSTableView, paneID: UUID, mode: Strin
         column.width = widthStore.width(paneID: paneID, mode: mode, column: kind)
         column.resizingMask = .userResizingMask
         column.sortDescriptorPrototype = NSSortDescriptor(key: kind.rawValue, ascending: true)
-        column.headerToolTip = kind == .cloud ? "iCloud上の項目の保存状態" : nil
+        column.headerToolTip = kind == .cloud ? L10n.tr("iCloud上の項目の保存状態") : nil
         table.addTableColumn(column)
     }
 }

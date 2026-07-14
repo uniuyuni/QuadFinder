@@ -8,6 +8,8 @@ enum FileOperationStatus: String, Codable, Sendable {
     case cancelled = "キャンセル"
     case stopped = "中止"
 
+    var localizedTitle: String { L10n.tr(rawValue) }
+
     var isFinished: Bool { self == .succeeded || self == .failed || self == .cancelled || self == .stopped }
 }
 
@@ -31,13 +33,13 @@ struct FileOperationJob: Identifiable, Sendable {
 
     var sourceDescription: String {
         if let plan = operation.transferPlan {
-            return "比較転送 \(plan.selectedActions.count)操作: \(plan.sourceURLs.first?.path ?? "")"
+            return L10n.format("比較転送 %d操作: %@", plan.selectedActions.count, plan.sourceURLs.first?.path ?? "")
         }
         if operation.sourceURLs.isEmpty {
-            return operation.syncPlan.map { "同期 \($0.actions.count)操作" } ?? "操作元なし"
+            return operation.syncPlan.map { L10n.format("同期 %d操作", $0.actions.count) } ?? L10n.tr("操作元なし")
         }
         if operation.sourceURLs.count == 1 { return operation.sourceURLs[0].path }
-        return "\(operation.sourceURLs.count)項目: \(operation.sourceURLs[0].path) ほか"
+        return L10n.format("%d項目: %@ ほか", operation.sourceURLs.count, operation.sourceURLs[0].path)
     }
 }
 
@@ -207,9 +209,9 @@ final class FileOperationQueue: ObservableObject {
         guard !outcome.historySteps.isEmpty else { return }
         let kind: HistoryOperationKind = operation.syncPlan != nil ? .sync
             : (operation.transferPlan != nil ? .transfer : (operation.kind == .move ? .move : .copy))
-        let verb = operation.syncPlan != nil ? "同期" : (operation.kind == .move ? "移動" : "コピー")
+        let verb = operation.syncPlan != nil ? L10n.tr("同期") : (operation.kind == .move ? L10n.tr("移動") : L10n.tr("コピー"))
         let reason = outcome.historySteps.compactMap(\.undoabilityReason).first
-        history?.record(.init(kind: kind, summary: "\(outcome.historySteps.count)操作を\(verb)\(partial ? "（一部完了）" : "")",
+        history?.record(.init(kind: kind, summary: L10n.format("%d操作を%@%@", outcome.historySteps.count, verb, partial ? L10n.tr("（一部完了）") : ""),
                               steps: outcome.historySteps, itemCount: outcome.completedItems,
                               byteCount: outcome.completedBytes,
                               sourceBookmark: operation.sourceAccessBookmark,

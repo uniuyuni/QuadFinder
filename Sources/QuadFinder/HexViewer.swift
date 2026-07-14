@@ -202,23 +202,23 @@ struct HexViewerModuleView: View {
     var body: some View {
         VStack(alignment: .leading, spacing: 6) {
             HStack {
-                Label("Hexビューアー", systemImage: "number.square") .font(.headline)
+                Label(L10n.tr("Hexビューアー"), systemImage: "number.square") .font(.headline)
                 if let page = controller.page {
                     Text("\(page.offset)–\(page.offset + UInt64(page.data.count)) / \(page.fileSize) bytes")
                         .font(.caption).foregroundStyle(.secondary)
                 }
                 Spacer()
-                Picker("行", selection: $bytesPerLine) {
-                    Text("8").tag(8); Text("16").tag(16); Text("32").tag(32)
+                Picker(L10n.tr("行"), selection: $bytesPerLine) {
+                    Text(L10n.tr("8")).tag(8); Text(L10n.tr("16")).tag(16); Text(L10n.tr("32")).tag(32)
                 }
-                .pickerStyle(.segmented).frame(width: 110).help("1行あたりのバイト数")
-                TextField("オフセット", text: $offsetText)
+                .pickerStyle(.segmented).frame(width: 110).help(L10n.tr("1行あたりのバイト数"))
+                TextField(L10n.tr("オフセット"), text: $offsetText)
                     .frame(width: 90).font(.system(.caption, design: .monospaced))
                     .onSubmit { goToOffset() }
-                Button("移動") { goToOffset() }
-                Button("前へ") { if let page = controller.page { controller.load(url: selectedFile, offset: page.offset >= 4_096 ? page.offset - 4_096 : 0) } }
+                Button(L10n.tr("移動")) { goToOffset() }
+                Button(L10n.tr("前へ")) { if let page = controller.page { controller.load(url: selectedFile, offset: page.offset >= 4_096 ? page.offset - 4_096 : 0) } }
                     .disabled(controller.page?.offset == 0 || controller.isLoading)
-                Button("次へ") { if let next = controller.page?.nextOffset { controller.load(url: selectedFile, offset: next) } }
+                Button(L10n.tr("次へ")) { if let next = controller.page?.nextOffset { controller.load(url: selectedFile, offset: next) } }
                     .disabled(controller.page?.nextOffset == nil || controller.isLoading)
                 Button(action: onClose) { Image(systemName: "xmark") }
                     .buttonStyle(.borderless)
@@ -226,7 +226,7 @@ struct HexViewerModuleView: View {
             if controller.isLoading { ProgressView().controlSize(.small) }
             if let error = controller.errorMessage { Text(error).font(.caption).foregroundStyle(.red) }
             if selectedFile == nil {
-                ContentUnavailableView("ファイルを選択してください", systemImage: "doc")
+                ContentUnavailableView(L10n.tr("ファイルを選択してください"), systemImage: "doc")
                     .frame(maxWidth: .infinity, maxHeight: .infinity)
             } else {
                 GeometryReader { viewport in
@@ -260,7 +260,7 @@ struct HexViewerModuleView: View {
                             .textSelection(.enabled)
                             .frame(width: layout.contentWidth, alignment: .topLeading)
                         } else if !controller.isLoading {
-                            Text("空のファイル")
+                            Text(L10n.tr("空のファイル"))
                                 .frame(width: layout.contentWidth, alignment: .topLeading)
                         }
                     }

@@ -13,6 +13,7 @@ RESOURCES_DIR="$APP_PATH/Contents/Resources"
 INFO_PLIST="$APP_PATH/Contents/Info.plist"
 EXECUTABLE="$ROOT_DIR/.build/release/QuadFinder"
 APP_ICON="$ROOT_DIR/Sources/QuadFinder/Resources/AppIcon.icns"
+RESOURCE_BUNDLE="$ROOT_DIR/.build/release/QuadFinder_QuadFinder.bundle"
 ICON_GENERATOR="$ROOT_DIR/scripts/generate_app_icon.sh"
 
 if [[ ! -f "$VERSION_SOURCE" ]]; then
@@ -47,6 +48,13 @@ if [[ ! -f "$APP_ICON" ]]; then
   exit 1
 fi
 cp "$APP_ICON" "$RESOURCES_DIR/AppIcon.icns"
+if [[ ! -d "$RESOURCE_BUNDLE" ]]; then
+  echo "error: SwiftPM resource bundle was not produced: $RESOURCE_BUNDLE" >&2
+  exit 1
+fi
+# QuadFinder's localization loader checks the signed app resource directory
+# before falling back to SwiftPM's generated development bundle.
+cp -R "$RESOURCE_BUNDLE" "$RESOURCES_DIR/QuadFinder_QuadFinder.bundle"
 
 cat > "$INFO_PLIST" <<EOF
 <?xml version="1.0" encoding="UTF-8"?>
@@ -55,6 +63,11 @@ cat > "$INFO_PLIST" <<EOF
 <dict>
     <key>CFBundleDevelopmentRegion</key>
     <string>en</string>
+    <key>CFBundleLocalizations</key>
+    <array>
+        <string>en</string>
+        <string>ja</string>
+    </array>
     <key>CFBundleExecutable</key>
     <string>QuadFinder</string>
     <key>CFBundleIdentifier</key>

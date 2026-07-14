@@ -27,9 +27,9 @@ enum ImagePreviewLoadError: LocalizedError, Equatable {
 
     var errorDescription: String? {
         switch self {
-        case .unsupported: "対応している画像を選択してください"
-        case .cannotOpen: "画像ファイルを開けません"
-        case .cannotDecode: "画像を表示できません"
+        case .unsupported: L10n.tr("対応している画像を選択してください")
+        case .cannotOpen: L10n.tr("画像ファイルを開けません")
+        case .cannotDecode: L10n.tr("画像を表示できません")
         }
     }
 }
@@ -163,13 +163,13 @@ struct ImagePreviewModuleView: View {
     var body: some View {
         VStack(alignment: .leading, spacing: 8) {
             HStack(spacing: 6) {
-                Label("画像表示", systemImage: "photo").font(.headline)
+                Label(L10n.tr("画像表示"), systemImage: "photo").font(.headline)
                 Spacer()
-                Button { model.fit() } label: { Text("全体") }.help("ウインドウに合わせる")
-                Button { model.showActualSize() } label: { Text("100%") }.help("実寸表示")
+                Button { model.fit() } label: { Text(L10n.tr("全体")) }.help(L10n.tr("ウインドウに合わせる"))
+                Button { model.showActualSize() } label: { Text(L10n.tr("100%")) }.help(L10n.tr("実寸表示"))
                 Button { model.zoomOut() } label: { Image(systemName: "minus.magnifyingglass") }
                 Button { model.zoomIn() } label: { Image(systemName: "plus.magnifyingglass") }
-                Button(action: onClose) { Image(systemName: "xmark") }.help("画像表示を閉じる")
+                Button(action: onClose) { Image(systemName: "xmark") }.help(L10n.tr("画像表示を閉じる"))
             }
             .buttonStyle(.borderless)
             Divider()
@@ -199,13 +199,13 @@ struct ImagePreviewModuleView: View {
     @ViewBuilder private func imageContent(size: CGSize) -> some View {
         switch model.state {
         case .empty:
-            ContentUnavailableView("画像を選択してください", systemImage: "photo")
+            ContentUnavailableView(L10n.tr("画像を選択してください"), systemImage: "photo")
         case .unsupported:
-            ContentUnavailableView("対応している画像を選択してください", systemImage: "photo.badge.exclamationmark")
+            ContentUnavailableView(L10n.tr("対応している画像を選択してください"), systemImage: "photo.badge.exclamationmark")
         case .loading:
-            ProgressView("画像を読み込み中…")
+            ProgressView(L10n.tr("画像を読み込み中…"))
         case .failed(let message):
-            ContentUnavailableView("画像を表示できません", systemImage: "exclamationmark.triangle", description: Text(message))
+            ContentUnavailableView(L10n.tr("画像を表示できません"), systemImage: "exclamationmark.triangle", description: Text(message))
         case .loaded(let decoded):
             ScrollView([.horizontal, .vertical]) {
                 Image(decorative: decoded.image, scale: 1)
@@ -225,7 +225,7 @@ struct ImagePreviewModuleView: View {
                 Text(url.lastPathComponent).lineLimit(1)
                 Spacer()
                 if case .loaded(let decoded) = model.state {
-                    Text("\(decoded.pixelWidth) × \(decoded.pixelHeight) px")
+                    Text(L10n.format("%1$lld × %2$lld px", Int64(decoded.pixelWidth), Int64(decoded.pixelHeight)))
                 }
             }
             .font(.caption)

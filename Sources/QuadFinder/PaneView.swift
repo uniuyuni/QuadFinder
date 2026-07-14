@@ -3,7 +3,7 @@ import SwiftUI
 import UniformTypeIdentifiers
 
 enum TabMenuPresentation {
-    static let accessibilityLabel = "タブ操作"
+    static var accessibilityLabel: String { L10n.tr("タブ操作") }
     /// The borderless macOS Menu draws the only visible disclosure indicator.
     static let customIndicatorSymbol: String? = nil
 }
@@ -100,7 +100,7 @@ struct PaneView: View {
                 return true
             } isTargeted: { isDropTargeted = $0 }
             .accessibilityElement(children: .contain)
-            .accessibilityLabel("ペイン\(paneNumber)、\(pane.currentURL.lastPathComponent)、\(workspace.state.activePaneID == paneID ? "アクティブ" : "非アクティブ")")
+            .accessibilityLabel(L10n.format("ペイン%1$lld、%2$@、%3$@", Int64(paneNumber), pane.currentURL.lastPathComponent, L10n.tr(workspace.state.activePaneID == paneID ? "アクティブ" : "非アクティブ")))
             .sheet(item: $getInfoModel) { GetInfoSheet(model: $0) }
         }
     }
@@ -119,24 +119,24 @@ struct PaneView: View {
                         .buttonStyle(.plain)
                         Menu {
                             if workspace.state.panes.count > 1 {
-                                Menu("別ペインへ移動") {
+                                Menu(L10n.tr("別ペインへ移動")) {
                                     ForEach(workspace.destinationCandidates(excluding: paneID)) { destination in
-                                        Button("ペイン\(destination.paneNumber): \(destination.folderName)") {
+                                        Button(L10n.format("ペイン%1$lld: %2$@", Int64(destination.paneNumber), destination.folderName)) {
                                             workspace.transferTab(tab.id, from: paneID, to: destination.paneID, copy: false)
                                         }
                                         .disabled(pane.tabs.count == 1)
                                     }
                                 }
-                                Menu("別ペインへ複製") {
+                                Menu(L10n.tr("別ペインへ複製")) {
                                     ForEach(workspace.destinationCandidates(excluding: paneID)) { destination in
-                                        Button("ペイン\(destination.paneNumber): \(destination.folderName)") {
+                                        Button(L10n.format("ペイン%1$lld: %2$@", Int64(destination.paneNumber), destination.folderName)) {
                                             workspace.transferTab(tab.id, from: paneID, to: destination.paneID, copy: true)
                                         }
                                     }
                                 }
                                 Divider()
                             }
-                            Button("タブを閉じる") { workspace.closeTab(tab.id, in: paneID) }
+                            Button(L10n.tr("タブを閉じる")) { workspace.closeTab(tab.id, in: paneID) }
                                 .disabled(pane.tabs.count == 1)
                         } label: {
                             // A borderless macOS Menu supplies its own disclosure
@@ -157,11 +157,11 @@ struct PaneView: View {
                     .padding(.horizontal, 7)
                     .padding(.vertical, 4)
                     .background(tab.id == pane.activeTabID ? Color.accentColor.opacity(0.18) : Color.secondary.opacity(0.08), in: RoundedRectangle(cornerRadius: 5))
-                    .accessibilityLabel("タブ、\(tab.currentURL.lastPathComponent)、\(tab.id == pane.activeTabID ? "選択中" : "非選択")")
+                    .accessibilityLabel(L10n.format("タブ、%1$@、%2$@", tab.currentURL.lastPathComponent, L10n.tr(tab.id == pane.activeTabID ? "選択中" : "非選択")))
                 }
                 Button { workspace.addTab(to: paneID) } label: { Image(systemName: "plus") }
                     .buttonStyle(.borderless)
-                    .help("新規タブ")
+                    .help(L10n.tr("新規タブ"))
             }
             .padding(.horizontal, 6)
         }
@@ -179,13 +179,13 @@ struct PaneView: View {
                 .foregroundStyle(workspace.state.activePaneID == paneID ? .white : .primary)
             Button { workspace.goBack(paneID: paneID) } label: { Image(systemName: "chevron.left") }
                 .disabled(pane.backwardHistory.isEmpty)
-                .help("戻る")
+                .help(L10n.tr("戻る"))
             Button { workspace.goForward(paneID: paneID) } label: { Image(systemName: "chevron.right") }
                 .disabled(pane.forwardHistory.isEmpty)
-                .help("進む")
+                .help(L10n.tr("進む"))
             Button { workspace.goUp(paneID: paneID) } label: { Image(systemName: "arrow.up") }
                 .disabled(pane.currentURL.path == "/")
-                .help("上位フォルダ")
+                .help(L10n.tr("上位フォルダ"))
             PathBreadcrumbView(url: pane.currentURL) { destination in
                 workspace.navigate(paneID: paneID, to: destination)
             }
@@ -198,28 +198,28 @@ struct PaneView: View {
             Spacer(minLength: 2)
             if browser.isLoading { ProgressView().controlSize(.small) }
             Button { chooseFolder() } label: { Image(systemName: "folder.badge.gearshape") }
-                .help("フォルダを選択…")
+                .help(L10n.tr("フォルダを選択…"))
             Menu {
-                Button { setViewStyle(.list) } label: { Label("リスト", systemImage: "list.bullet") }
-                Button { setViewStyle(.icons) } label: { Label("アイコン", systemImage: "square.grid.2x2") }
-                Button { setViewStyle(.columns) } label: { Label("カラム", systemImage: "rectangle.split.3x1") }
-                Button { setViewStyle(.tree) } label: { Label("ツリー", systemImage: "list.bullet.indent") }
+                Button { setViewStyle(.list) } label: { Label(L10n.tr("リスト"), systemImage: "list.bullet") }
+                Button { setViewStyle(.icons) } label: { Label(L10n.tr("アイコン"), systemImage: "square.grid.2x2") }
+                Button { setViewStyle(.columns) } label: { Label(L10n.tr("カラム"), systemImage: "rectangle.split.3x1") }
+                Button { setViewStyle(.tree) } label: { Label(L10n.tr("ツリー"), systemImage: "list.bullet.indent") }
             } label: {
                 Image(systemName: viewStyleIcon(pane.viewStyle))
                     .frame(width: 18, height: 18)
             }
             .menuStyle(.borderlessButton)
             .fixedSize()
-            .help("表示形式")
+            .help(L10n.tr("表示形式"))
             Menu {
-                Button("リストを再読み込み") { load(pane, bypassCache: true) }
-                Toggle("隠しファイルを表示", isOn: Binding(
+                Button(L10n.tr("リストを再読み込み")) { load(pane, bypassCache: true) }
+                Toggle(L10n.tr("隠しファイルを表示"), isOn: Binding(
                     get: { pane.showsHiddenFiles },
                     set: { value in workspace.updatePane(id: paneID) { $0.showsHiddenFiles = value } }
                 ))
                 Divider()
-                Button("一時最大化") { workspace.activate(paneID); workspace.toggleMaximize() }
-                Button("このペインを閉じる") { workspace.closePane(paneID) }
+                Button(L10n.tr("一時最大化")) { workspace.activate(paneID); workspace.toggleMaximize() }
+                Button(L10n.tr("このペインを閉じる")) { workspace.closePane(paneID) }
                     .disabled(!workspace.canClosePane)
             } label: { Image(systemName: "ellipsis.circle") }
                 .menuStyle(.borderlessButton)
@@ -246,12 +246,12 @@ struct PaneView: View {
             } description: {
                 Text(error.message)
             } actions: {
-                Button("再試行") { load(pane) }
-                Button("別の場所を選ぶ…") { chooseFolder() }
+                Button(L10n.tr("再試行")) { load(pane) }
+                Button(L10n.tr("別の場所を選ぶ…")) { chooseFolder() }
             }
             .frame(maxWidth: .infinity, maxHeight: .infinity)
         } else if browser.items.isEmpty && !browser.isLoading {
-            ContentUnavailableView("空のフォルダ", systemImage: "folder")
+            ContentUnavailableView(L10n.tr("空のフォルダ"), systemImage: "folder")
                 .frame(maxWidth: .infinity, maxHeight: .infinity)
         } else if pane.viewStyle == .list {
                 NativeFileTableView(
@@ -339,7 +339,7 @@ struct PaneView: View {
             Group {
                 if let date = item.modificationDate {
                     Text(date, format: .dateTime.year().month().day().hour().minute())
-                } else { Text("—") }
+                } else { Text(L10n.tr("—")) }
             }
             .foregroundStyle(.secondary).frame(width: 125, alignment: .leading)
             Text(NativeFileMetadataText.cloud(item))
@@ -383,8 +383,8 @@ struct PaneView: View {
         }
         if let applicationURL { launch(applicationURL); return }
         let panel = NSOpenPanel()
-        panel.title = "アプリケーションを選択"
-        panel.prompt = "選択"
+        panel.title = L10n.tr("アプリケーションを選択")
+        panel.prompt = L10n.tr("選択")
         panel.directoryURL = URL(fileURLWithPath: "/Applications", isDirectory: true)
         panel.canChooseFiles = true; panel.canChooseDirectories = false; panel.allowsMultipleSelection = false
         panel.allowedContentTypes = [.application]
@@ -395,9 +395,9 @@ struct PaneView: View {
         let selected = browser.items.filter { pane.selectedURLs.contains($0.url) }
         let bytes = selected.compactMap(\.size).reduce(0, +)
         return HStack(spacing: 8) {
-            Text("\(browser.items.count)項目")
+            Text(L10n.format("%lld項目", Int64(browser.items.count)))
             if !selected.isEmpty {
-                Text("\(selected.count)項目を選択")
+                Text(L10n.format("%lld項目を選択", Int64(selected.count)))
                 if bytes > 0 { Text(ByteCountFormatter.string(fromByteCount: bytes, countStyle: .file)) }
             }
             Spacer()
@@ -470,13 +470,13 @@ struct PaneView: View {
     }
 
     private func createFolder(in pane: PaneState) {
-        let field = NSTextField(string: "名称未設定フォルダ")
+        let field = NSTextField(string: L10n.tr("名称未設定フォルダ"))
         field.frame = NSRect(x: 0, y: 0, width: 300, height: 24)
         let alert = NSAlert()
-        alert.messageText = "新規フォルダ"
+        alert.messageText = L10n.tr("新規フォルダ")
         alert.accessoryView = field
-        alert.addButton(withTitle: "作成")
-        alert.addButton(withTitle: "キャンセル")
+        alert.addButton(withTitle: L10n.tr("作成"))
+        alert.addButton(withTitle: L10n.tr("キャンセル"))
         guard alert.runModal() == .alertFirstButtonReturn else { return }
         do {
             let scope = try beginSecurityScope(
@@ -488,10 +488,10 @@ struct PaneView: View {
                 throw FinderActionError.destinationConflict(destination)
             }
             try FileManager.default.createDirectory(at: destination, withIntermediateDirectories: false)
-            workspace.operationHistory.record(.init(kind: .newFolder, summary: "フォルダを作成", steps: [.createdDirectory(destination)], itemCount: 1,
+            workspace.operationHistory.record(.init(kind: .newFolder, summary: L10n.tr("フォルダを作成"), steps: [.createdDirectory(destination)], itemCount: 1,
                                                     sourceBookmark: pane.accessBookmark, targetBookmark: pane.accessBookmark))
             NotificationCenter.default.post(name: .quadFinderDirectoryDidChange, object: pane.currentURL)
-        } catch { workspace.report("フォルダを作成できません", error: error) }
+        } catch { workspace.report(L10n.tr("フォルダを作成できません"), error: error) }
     }
 
     private func duplicate(_ urls: [URL], in pane: PaneState) {
@@ -505,17 +505,17 @@ struct PaneView: View {
                     created.append(.duplicated(source: url, target: target, sourceFingerprint: sourceFP, targetFingerprint: targetFP))
                 }
             }
-            workspace.operationHistory.record(.init(kind: .duplicate, summary: "\(created.count)項目を複製", steps: created, itemCount: created.count,
+            workspace.operationHistory.record(.init(kind: .duplicate, summary: L10n.format("%lld項目を複製", Int64(created.count)), steps: created, itemCount: created.count,
                                                     sourceBookmark: pane.accessBookmark, targetBookmark: pane.accessBookmark))
             for directory in Set(urls.map { $0.deletingLastPathComponent() }) {
                 NotificationCenter.default.post(name: .quadFinderDirectoryDidChange, object: directory)
             }
         } catch {
             if !created.isEmpty {
-                workspace.operationHistory.record(.init(kind: .duplicate, summary: "\(created.count)項目を複製（一部完了）",
+                workspace.operationHistory.record(.init(kind: .duplicate, summary: L10n.format("%lld項目を複製（一部完了）", Int64(created.count)),
                     steps: created, itemCount: created.count, sourceBookmark: pane.accessBookmark, targetBookmark: pane.accessBookmark))
             }
-            workspace.report("複製できません", error: error)
+            workspace.report(L10n.tr("複製できません"), error: error)
         }
     }
 
@@ -523,21 +523,21 @@ struct PaneView: View {
         let field = NSTextField(string: url.lastPathComponent)
         field.frame = NSRect(x: 0, y: 0, width: 300, height: 24)
         let alert = NSAlert()
-        alert.messageText = "名前を変更"
-        alert.informativeText = "新しい名前を入力してください。"
+        alert.messageText = L10n.tr("名前を変更")
+        alert.informativeText = L10n.tr("新しい名前を入力してください。")
         alert.accessoryView = field
-        alert.addButton(withTitle: "変更")
-        alert.addButton(withTitle: "キャンセル")
+        alert.addButton(withTitle: L10n.tr("変更"))
+        alert.addButton(withTitle: L10n.tr("キャンセル"))
         guard alert.runModal() == .alertFirstButtonReturn else { return }
         do {
             let scope = try beginSecurityScope(bookmark: pane.accessBookmark, requestedURLs: [url])
             defer { scope?.stopAccessingSecurityScopedResource() }
             let destination = try FinderActionService().rename(url, to: field.stringValue)
-            workspace.operationHistory.record(.init(kind: .rename, summary: "名前を変更", steps: [.moved(from: url, to: destination)], itemCount: 1,
+            workspace.operationHistory.record(.init(kind: .rename, summary: L10n.tr("名前を変更"), steps: [.moved(from: url, to: destination)], itemCount: 1,
                                                     sourceBookmark: pane.accessBookmark, targetBookmark: pane.accessBookmark))
             workspace.setSelection([], in: paneID)
             NotificationCenter.default.post(name: .quadFinderDirectoryDidChange, object: url.deletingLastPathComponent())
-        } catch { workspace.report("名前を変更できません", error: error) }
+        } catch { workspace.report(L10n.tr("名前を変更できません"), error: error) }
     }
 
     private func beginSecurityScope(bookmark: Data?, requestedURLs: [URL]) throws -> URL? {

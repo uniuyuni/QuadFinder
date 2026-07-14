@@ -28,14 +28,14 @@ enum PaneLayout: String, Codable, CaseIterable, Sendable {
 
     var title: String {
         switch self {
-        case .single: "1ペイン"
-        case .vertical: "左右"
-        case .horizontal: "上下"
-        case .leading: "左＋右上下"
-        case .trailing: "左上下＋右"
-        case .top: "上＋下左右"
-        case .bottom: "上左右＋下"
-        case .grid: "2×2"
+        case .single: L10n.tr("1ペイン")
+        case .vertical: L10n.tr("左右")
+        case .horizontal: L10n.tr("上下")
+        case .leading: L10n.tr("左＋右上下")
+        case .trailing: L10n.tr("左上下＋右")
+        case .top: L10n.tr("上＋下左右")
+        case .bottom: L10n.tr("上左右＋下")
+        case .grid: L10n.tr("2×2")
         }
     }
 }
@@ -432,6 +432,8 @@ enum FileOperationKind: String, Sendable {
     case copy = "コピー"
     case move = "移動"
     case sync = "同期"
+
+    var localizedTitle: String { L10n.tr(rawValue) }
 }
 
 enum DropIntent: Equatable, Sendable {
@@ -548,7 +550,7 @@ enum PaneDragItemProvider {
     static func makeBatch(_ payloads: [PaneFileDragPayload]) -> NSItemProvider {
         guard let first = payloads.first else { return NSItemProvider() }
         let provider = NSItemProvider(object: first.url as NSURL)
-        provider.suggestedName = payloads.count == 1 ? first.url.lastPathComponent : "\(payloads.count)項目"
+        provider.suggestedName = payloads.count == 1 ? first.url.lastPathComponent : L10n.format("%d項目", payloads.count)
         provider.registerDataRepresentation(
             forTypeIdentifier: UTType.quadFinderPaneBatch.identifier,
             visibility: .ownProcess

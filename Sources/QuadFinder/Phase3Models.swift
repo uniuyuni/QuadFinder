@@ -12,6 +12,8 @@ enum ComparisonClassification: String, Codable, CaseIterable, Sendable {
     case different = "差異あり"
     case equal = "同一"
     case error = "エラー"
+
+    var localizedTitle: String { L10n.tr(rawValue) }
 }
 
 struct DirectoryEntryFingerprint: Codable, Equatable, Sendable {
@@ -54,12 +56,16 @@ enum SyncMode: String, Codable, CaseIterable, Sendable {
     case oneWayUpdate = "片方向更新"
     case oneWayMirror = "片方向ミラー"
     case missingOnly = "欠落項目のみ"
+
+    var localizedTitle: String { L10n.tr(rawValue) }
 }
 
 enum SyncActionKind: String, Codable, Sendable {
     case create = "作成"
     case overwrite = "上書き"
     case delete = "削除"
+
+    var localizedTitle: String { L10n.tr(rawValue) }
 }
 
 struct SyncAction: Identifiable, Codable, Equatable, Sendable {
@@ -102,12 +108,12 @@ enum SyncSafetyError: LocalizedError, Equatable {
 
     var errorDescription: String? {
         switch self {
-        case .previewRequired: "同期プレビューがありません。再比較してください。"
-        case .overwriteNotEnabled: "上書きは明示的に有効化されていません。"
-        case .deleteNotEnabled: "削除は明示的に有効化されていません。"
-        case .secondConfirmationRequired: "完全パスを確認する二段階目の確認が完了していません。"
-        case .staleSnapshot: "比較後にフォルダ内容が変化しました。再比較が必要です。"
-        case .trashUnavailable(let url): "項目をゴミ箱へ移動できません。完全削除は行いません: \(url.path)"
+        case .previewRequired: L10n.tr("同期プレビューがありません。再比較してください。")
+        case .overwriteNotEnabled: L10n.tr("上書きは明示的に有効化されていません。")
+        case .deleteNotEnabled: L10n.tr("削除は明示的に有効化されていません。")
+        case .secondConfirmationRequired: L10n.tr("完全パスを確認する二段階目の確認が完了していません。")
+        case .staleSnapshot: L10n.tr("比較後にフォルダ内容が変化しました。再比較が必要です。")
+        case .trashUnavailable(let url): L10n.format("項目をゴミ箱へ移動できません。完全削除は行いません: %@", url.path)
         }
     }
 }

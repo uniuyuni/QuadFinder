@@ -20,11 +20,11 @@ struct OperationHistoryView: View {
     var body: some View {
         VStack(spacing: 10) {
             HStack {
-                Text("ファイル操作の履歴").font(.title2.bold())
+                Text(L10n.tr("ファイル操作の履歴")).font(.title2.bold())
                 Spacer()
-                Button("取り消す", action: undo).disabled(store.nextUndo == nil)
-                Button("やり直す", action: redo).disabled(store.nextRedo == nil)
-                Button("閉じる") { dismiss() }
+                Button(L10n.tr("取り消す"), action: undo).disabled(store.nextUndo == nil)
+                Button(L10n.tr("やり直す"), action: redo).disabled(store.nextRedo == nil)
+                Button(L10n.tr("閉じる")) { dismiss() }
             }
             List {
               ForEach(store.entries) { entry in
@@ -32,16 +32,16 @@ struct OperationHistoryView: View {
                     Image(systemName: entry.isUndone ? "arrow.uturn.forward.circle" : (entry.undoable ? "checkmark.circle" : "exclamationmark.triangle"))
                     VStack(alignment: .leading) {
                         Text(entry.summary)
-                        Text("\(entry.timestamp.formatted()) · \(entry.itemCount)項目" + (entry.reason.map { " · \($0)" } ?? ""))
+                        Text(L10n.format("%1$@ · %2$lld項目", entry.timestamp.formatted(), Int64(entry.itemCount)) + (entry.reason.map { " · \($0)" } ?? ""))
                             .font(.caption).foregroundStyle(.secondary)
                     }
                     Spacer()
-                    if entry.id == store.nextUndo?.id { Button("Undo", action: undo) }
-                    if entry.id == store.nextRedo?.id { Button("Redo", action: redo) }
+                    if entry.id == store.nextUndo?.id { Button(L10n.tr("Undo"), action: undo) }
+                    if entry.id == store.nextRedo?.id { Button(L10n.tr("Redo"), action: redo) }
                 }
               }
             }
-            HStack { Button("履歴を消去", role: .destructive) { store.clear() }; Spacer() }
+            HStack { Button(L10n.tr("履歴を消去"), role: .destructive) { store.clear() }; Spacer() }
         }.padding().frame(minWidth: 650, minHeight: 420)
     }
 }
@@ -61,9 +61,9 @@ enum HistoryStep: Codable, Equatable, Sendable {
 extension HistoryStep {
     var undoabilityReason: String? {
         switch self {
-        case .trashed(_, nil): "OSからゴミ箱内の復元URLを取得できませんでした"
-        case .replaced(_, _, nil, _, _, _): "置換前項目のゴミ箱URLを取得できませんでした"
-        case .edited(_, let before, let after, _, _) where !FileManager.default.fileExists(atPath: before.path) || !FileManager.default.fileExists(atPath: after.path): "編集履歴のバックアップがありません"
+        case .trashed(_, nil): L10n.tr("OSからゴミ箱内の復元URLを取得できませんでした")
+        case .replaced(_, _, nil, _, _, _): L10n.tr("置換前項目のゴミ箱URLを取得できませんでした")
+        case .edited(_, let before, let after, _, _) where !FileManager.default.fileExists(atPath: before.path) || !FileManager.default.fileExists(atPath: after.path): L10n.tr("編集履歴のバックアップがありません")
         default: nil
         }
     }
@@ -331,10 +331,10 @@ enum HistoryError: LocalizedError {
     case stale(URL), conflict(URL), unrestorable(URL), orderChanged
     var errorDescription: String? {
         switch self {
-        case .stale(let u): "操作後に項目が変更または削除されています: \(u.path)"
-        case .conflict(let u): "復元先に同名項目があるため中止しました: \(u.path)"
-        case .unrestorable(let u): "この項目は安全に復元できません: \(u.path)"
-        case .orderChanged: "操作履歴の順序が変更されました。もう一度実行してください。"
+        case .stale(let u): L10n.format("操作後に項目が変更または削除されています: %@", u.path)
+        case .conflict(let u): L10n.format("復元先に同名項目があるため中止しました: %@", u.path)
+        case .unrestorable(let u): L10n.format("この項目は安全に復元できません: %@", u.path)
+        case .orderChanged: L10n.tr("操作履歴の順序が変更されました。もう一度実行してください。")
         }
     }
 }

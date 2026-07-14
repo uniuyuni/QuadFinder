@@ -24,7 +24,7 @@ struct ContentView: View {
                         )
                     }, openRecent: { recent in
                         guard FileManager.default.fileExists(atPath: recent.url.path) else {
-                            workspace.report("履歴項目を開けません", error: CocoaError(.fileNoSuchFile))
+                            workspace.report(L10n.tr("履歴項目を開けません"), error: CocoaError(.fileNoSuchFile))
                             return
                         }
                         var scope: URL?
@@ -35,7 +35,7 @@ struct ContentView: View {
                         if recent.kind == .folder {
                             workspace.navigate(paneID: workspace.state.activePaneID, to: recent.url, bookmark: recent.bookmark)
                         } else if !NSWorkspace.shared.open(recent.url) {
-                            workspace.report("履歴項目を開けません", error: CocoaError(.fileReadUnknown))
+                            workspace.report(L10n.tr("履歴項目を開けません"), error: CocoaError(.fileReadUnknown))
                         }
                     })
                     .frame(width: sidebarStore.width)
@@ -57,26 +57,26 @@ struct ContentView: View {
         .frame(minWidth: 520, minHeight: 420)
         .onReceive(NotificationCenter.default.publisher(for: .quadFinderSidebarEjectFailed)) { note in
             let error = note.userInfo?["error"] as? Error ?? CocoaError(.fileWriteUnknown)
-            workspace.report("ディスクを取り出せません", error: error)
+            workspace.report(L10n.tr("ディスクを取り出せません"), error: error)
         }
         .onReceive(NotificationCenter.default.publisher(for: .quadFinderSidebarDidEject)) { note in
             guard let volumeURL = note.object as? URL else { return }
             workspace.relocatePanesAfterEject(of: volumeURL)
         }
         .alert(item: $workspace.error) { error in
-            Alert(title: Text(error.title), message: Text(error.message), dismissButton: .default(Text("OK")))
+            Alert(title: Text(error.title), message: Text(error.message), dismissButton: .default(Text(L10n.tr("OK"))))
         }
         .confirmationDialog(
-            "ファイル操作を選択",
+            L10n.tr("ファイル操作を選択"),
             isPresented: Binding(get: { workspace.pendingDrop != nil }, set: { if !$0 { workspace.pendingDrop = nil } }),
             titleVisibility: .visible
         ) {
-            Button("コピー") { workspace.performPendingDrop(as: .copy) }
-            Button("移動") { workspace.performPendingDrop(as: .move) }
-            Button("キャンセル", role: .cancel) { workspace.pendingDrop = nil }
+            Button(L10n.tr("コピー")) { workspace.performPendingDrop(as: .copy) }
+            Button(L10n.tr("移動")) { workspace.performPendingDrop(as: .move) }
+            Button(L10n.tr("キャンセル"), role: .cancel) { workspace.pendingDrop = nil }
         } message: {
             if let drop = workspace.pendingDrop {
-                Text("\(drop.sourceURLs.count)項目\nコピー先: \(drop.targetDirectoryURL.path(percentEncoded: false))\n\n移動は元の場所から項目を削除します。")
+                Text(L10n.format("%1$lld項目\nコピー先: %2$@\n\n移動は元の場所から項目を削除します。", Int64(drop.sourceURLs.count), drop.targetDirectoryURL.path(percentEncoded: false)))
             }
         }
         .sheet(item: $workspace.pendingTransfer) { transfer in
@@ -168,61 +168,61 @@ struct ContentView: View {
     private var toolbar: some View {
         HStack(spacing: 10) {
             Button { sidebarStore.isVisible.toggle() } label: {
-                Label("サイドバー", systemImage: "sidebar.left")
+                Label(L10n.tr("サイドバー"), systemImage: "sidebar.left")
             }
-            .help(sidebarStore.isVisible ? "サイドバーを隠す" : "サイドバーを表示")
-            Button { workspace.addPane() } label: { Label("ペインを追加", systemImage: "rectangle.split.2x2") }
+            .help(L10n.tr(sidebarStore.isVisible ? "サイドバーを隠す" : "サイドバーを表示"))
+            Button { workspace.addPane() } label: { Label(L10n.tr("ペインを追加"), systemImage: "rectangle.split.2x2") }
                 .disabled(!workspace.canAddPane)
-            Button { workspace.closeActivePane() } label: { Label("閉じる", systemImage: "rectangle.badge.xmark") }
+            Button { workspace.closeActivePane() } label: { Label(L10n.tr("閉じる"), systemImage: "rectangle.badge.xmark") }
                 .disabled(!workspace.canClosePane)
-            Button { workspace.restoreClosedPane() } label: { Label("復元", systemImage: "arrow.uturn.backward") }
+            Button { workspace.restoreClosedPane() } label: { Label(L10n.tr("復元"), systemImage: "arrow.uturn.backward") }
                 .disabled(workspace.recentlyClosedPane == nil || !workspace.canAddPane)
             Divider().frame(height: 20)
             layoutMenu
             Button { showsPaneLinks = true } label: {
-                Label("リンク", systemImage: workspace.state.paneLinkGroup == nil ? "link" : "link.circle.fill")
+                Label(L10n.tr("リンク"), systemImage: workspace.state.paneLinkGroup == nil ? "link" : "link.circle.fill")
             }
             Menu {
                 ForEach(workspace.destinationCandidates(excluding: workspace.state.activePaneID)) { destination in
-                    Button("ペイン\(destination.paneNumber): \(destination.folderName)") {
+                    Button(L10n.format("ペイン%1$lld: %2$@", Int64(destination.paneNumber), destination.folderName)) {
                         workspace.setComparisonTarget(destination.paneID)
                     }
                 }
-            } label: { Label("比較", systemImage: "arrow.left.arrow.right.square") }
+            } label: { Label(L10n.tr("比較"), systemImage: "arrow.left.arrow.right.square") }
             .disabled(workspace.state.panes.count < 2)
             Button { workspace.toggleMaximize() } label: {
-                Label(workspace.state.maximizedPaneID == nil ? "最大化" : "元に戻す", systemImage: workspace.state.maximizedPaneID == nil ? "arrow.up.left.and.arrow.down.right" : "arrow.down.right.and.arrow.up.left")
+                Label(L10n.tr(workspace.state.maximizedPaneID == nil ? "最大化" : "元に戻す"), systemImage: workspace.state.maximizedPaneID == nil ? "arrow.up.left.and.arrow.down.right" : "arrow.down.right.and.arrow.up.left")
             }
-            .help("アクティブペインを一時最大化")
+            .help(L10n.tr("アクティブペインを一時最大化"))
             Spacer()
-            Button { showsOperationHistory = true } label: { Label("履歴", systemImage: "clock.arrow.circlepath") }
+            Button { showsOperationHistory = true } label: { Label(L10n.tr("履歴"), systemImage: "clock.arrow.circlepath") }
             TrashDropTargetView()
                 .environmentObject(workspace)
                 .frame(width: 36, height: 32)
                 .zIndex(100)
-                .help("ここへドラッグしてゴミ箱に入れる")
+                .help(L10n.tr("ここへドラッグしてゴミ箱に入れる"))
             Menu {
-                Toggle("選択情報", isOn: Binding(
+                Toggle(L10n.tr("選択情報"), isOn: Binding(
                     get: { workspace.state.moduleSettings.selectionInfo.isVisible },
                     set: { value in workspace.updateModuleSettings { $0.selectionInfo.isVisible = value } }
                 ))
-                Toggle("操作キュー", isOn: Binding(
+                Toggle(L10n.tr("操作キュー"), isOn: Binding(
                     get: { workspace.state.moduleSettings.operationQueue.isVisible },
                     set: { value in workspace.updateModuleSettings { $0.operationQueue.isVisible = value } }
                 ))
-                Toggle("フォルダ比較", isOn: Binding(
+                Toggle(L10n.tr("フォルダ比較"), isOn: Binding(
                     get: { workspace.state.moduleSettings.comparison.isVisible },
                     set: { value in workspace.updateModuleSettings { $0.comparison.isVisible = value } }
                 ))
-                Toggle("画像表示", isOn: Binding(
+                Toggle(L10n.tr("画像表示"), isOn: Binding(
                     get: { workspace.state.moduleSettings.imagePreview.isVisible },
                     set: { value in workspace.updateModuleSettings { $0.imagePreview.isVisible = value } }
                 ))
-                Toggle("Hexビューアー", isOn: Binding(
+                Toggle(L10n.tr("Hexビューアー"), isOn: Binding(
                     get: { workspace.state.moduleSettings.hexViewer.isVisible },
                     set: { value in workspace.updateModuleSettings { $0.hexViewer.isVisible = value } }
                 ))
-                Toggle("テキストエディタ", isOn: Binding(
+                Toggle(L10n.tr("テキストエディタ"), isOn: Binding(
                     get: { workspace.state.moduleSettings.textEditor.isVisible },
                     set: { value in
                         if value {
@@ -232,14 +232,14 @@ struct ContentView: View {
                         }
                     }
                 ))
-            } label: { Label("モジュール", systemImage: "sidebar.right") }
-            Button { showsPaneSets = true } label: { Label("セット", systemImage: "square.grid.2x2") }
-            Text("\(workspace.state.panes.count)ペイン")
+            } label: { Label(L10n.tr("モジュール"), systemImage: "sidebar.right") }
+            Button { showsPaneSets = true } label: { Label(L10n.tr("セット"), systemImage: "square.grid.2x2") }
+            Text(L10n.format("%lldペイン", Int64(workspace.state.panes.count)))
                 .foregroundStyle(.secondary)
             if let pane = workspace.activePane {
                 Text(pane.currentURL.lastPathComponent.isEmpty ? "/" : pane.currentURL.lastPathComponent)
                     .lineLimit(1)
-                    .help("アクティブペイン")
+                    .help(L10n.tr("アクティブペイン"))
             }
             FileOperationProgressBadge(queue: workspace.operationQueue)
         }
@@ -254,25 +254,25 @@ struct ContentView: View {
         Menu {
             switch workspace.state.panes.count {
             case 1:
-                Button("1ペイン") { workspace.setLayout(.single) }
+                Button(L10n.tr("1ペイン")) { workspace.setLayout(.single) }
             case 2:
-                Button("左右") { workspace.setLayout(.vertical) }
-                Button("上下") { workspace.setLayout(.horizontal) }
+                Button(L10n.tr("左右")) { workspace.setLayout(.vertical) }
+                Button(L10n.tr("上下")) { workspace.setLayout(.horizontal) }
             case 3:
-                Button("左＋右上下") { workspace.setLayout(.leading) }
-                Button("左上下＋右") { workspace.setLayout(.trailing) }
-                Button("上＋下左右") { workspace.setLayout(.top) }
-                Button("上左右＋下") { workspace.setLayout(.bottom) }
+                Button(L10n.tr("左＋右上下")) { workspace.setLayout(.leading) }
+                Button(L10n.tr("左上下＋右")) { workspace.setLayout(.trailing) }
+                Button(L10n.tr("上＋下左右")) { workspace.setLayout(.top) }
+                Button(L10n.tr("上左右＋下")) { workspace.setLayout(.bottom) }
             default:
-                Button("2×2") { workspace.setLayout(.grid) }
+                Button(L10n.tr("2×2")) { workspace.setLayout(.grid) }
             }
             Divider()
-            Button("分割比率を50:50に戻す") { workspace.resetRatios() }
+            Button(L10n.tr("分割比率を50:50に戻す")) { workspace.resetRatios() }
             if workspace.state.panes.count > 1 {
                 Divider()
-                Menu("アクティブペインと交換") {
+                Menu(L10n.tr("アクティブペインと交換")) {
                     ForEach(Array(workspace.state.orderedPaneIDs.enumerated()), id: \.element) { index, id in
-                        Button("ペイン\(index + 1)") { workspace.swapActive(with: id) }
+                        Button(L10n.format("ペイン%lld", Int64(index + 1))) { workspace.swapActive(with: id) }
                             .disabled(id == workspace.state.activePaneID)
                     }
                 }
@@ -309,7 +309,7 @@ private struct SidebarResizeHandle: View {
                 store.updateWidthDrag(screenX: Double(value.location.x), startScreenX: Double(value.startLocation.x))
             }
             .onEnded { _ in store.endWidthDrag() })
-        .accessibilityLabel("サイドバーの幅")
+        .accessibilityLabel(L10n.tr("サイドバーの幅"))
         .accessibilityAdjustableAction { direction in
             switch direction {
             case .increment: store.setWidth(store.width + 10)

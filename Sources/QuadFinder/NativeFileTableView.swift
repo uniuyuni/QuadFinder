@@ -20,11 +20,11 @@ enum NativeFileMetadataText {
     static func cloud(_ item: FileItem) -> String {
         guard item.isUbiquitous else { return "" }
         switch item.cloudDownloadStatus {
-        case URLUbiquitousItemDownloadingStatus.current.rawValue: return "端末内"
-        case URLUbiquitousItemDownloadingStatus.downloaded.rawValue: return "ダウンロード済み"
-        case URLUbiquitousItemDownloadingStatus.notDownloaded.rawValue: return "クラウドのみ"
-        case .some(let status) where status.localizedCaseInsensitiveContains("download"): return "ダウンロード中"
-        default: return "状態不明"
+        case URLUbiquitousItemDownloadingStatus.current.rawValue: return L10n.tr("端末内")
+        case URLUbiquitousItemDownloadingStatus.downloaded.rawValue: return L10n.tr("ダウンロード済み")
+        case URLUbiquitousItemDownloadingStatus.notDownloaded.rawValue: return L10n.tr("クラウドのみ")
+        case .some(let status) where status.localizedCaseInsensitiveContains("download"): return L10n.tr("ダウンロード中")
+        default: return L10n.tr("状態不明")
         }
     }
 }

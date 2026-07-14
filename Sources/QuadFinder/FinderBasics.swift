@@ -126,16 +126,16 @@ enum FinderActionError: LocalizedError {
 
     var errorDescription: String? {
         switch self {
-        case .noSelection: "項目が選択されていません。"
-        case .invalidName: "使用できない名前です。"
-        case .destinationConflict(let url): "同名の項目が既に存在します: \(url.path)"
-        case .trashFailed(let url, let error): "「\(url.lastPathComponent)」をゴミ箱に移動できませんでした。完全削除は行っていません。\n\(error.localizedDescription)"
+        case .noSelection: L10n.tr("項目が選択されていません。")
+        case .invalidName: L10n.tr("使用できない名前です。")
+        case .destinationConflict(let url): L10n.format("同名の項目が既に存在します: %@", url.path)
+        case .trashFailed(let url, let error): L10n.format("「%@」をゴミ箱に移動できませんでした。完全削除は行っていません。\n%@", url.lastPathComponent, error.localizedDescription)
         }
     }
 }
 
 struct FinderActionService: Sendable {
-    func createFolder(in directory: URL, preferredName: String = "名称未設定フォルダ") throws -> URL {
+    func createFolder(in directory: URL, preferredName: String = L10n.tr("名称未設定フォルダ")) throws -> URL {
         for index in 1...10_000 {
             let name = index == 1 ? preferredName : "\(preferredName) \(index)"
             let destination = directory.appendingPathComponent(name, isDirectory: true)
@@ -165,7 +165,7 @@ struct FinderActionService: Sendable {
         let ext = url.pathExtension
         let stem = ext.isEmpty ? url.lastPathComponent : url.deletingPathExtension().lastPathComponent
         for index in 1...10_000 {
-            let suffix = index == 1 ? " のコピー" : " のコピー \(index)"
+            let suffix = index == 1 ? L10n.tr(" のコピー") : L10n.format(" のコピー %d", index)
             let name = ext.isEmpty ? stem + suffix : stem + suffix + "." + ext
             let destination = directory.appendingPathComponent(name)
             if !FileManager.default.fileExists(atPath: destination.path) {
@@ -206,7 +206,7 @@ struct FinderActionService: Sendable {
 extension WorkspaceStore {
     func copySelectionToClipboard(cut: Bool) {
         guard let pane = activePane, !pane.selectedURLs.isEmpty else {
-            error = UserFacingError(title: "項目が選択されていません", message: FinderActionError.noSelection.localizedDescription)
+            error = UserFacingError(title: L10n.tr("項目が選択されていません"), message: FinderActionError.noSelection.localizedDescription)
             return
         }
         FinderClipboard.shared.write(urls: pane.selectedURLs.sorted { $0.path < $1.path }, cut: cut)
@@ -216,7 +216,7 @@ extension WorkspaceStore {
         guard let target = activePane else { return }
         let contents = FinderClipboard.shared.readSnapshot()
         guard !contents.urls.isEmpty else {
-            error = UserFacingError(title: "貼り付けできません", message: "クリップボードにファイルまたはフォルダがありません。")
+            error = UserFacingError(title: L10n.tr("貼り付けできません"), message: L10n.tr("クリップボードにファイルまたはフォルダがありません。"))
             return
         }
         pendingDrop = PendingDrop(
@@ -407,7 +407,10 @@ final class DirectoryMonitoringCenter {
 // MARK: - Sidebar
 
 struct SidebarLocation: Identifiable, Hashable {
-    enum Section: String { case favorites = "よく使う項目", devices = "デバイス" }
+    enum Section: String {
+        case favorites = "よく使う項目", devices = "デバイス"
+        var localizedTitle: String { L10n.tr(rawValue) }
+    }
     let section: Section
     let name: String
     let url: URL
@@ -430,10 +433,10 @@ struct SidebarLocationsProvider {
         let fileManager = FileManager.default
         let home = fileManager.homeDirectoryForCurrentUser
         var result = [
-            SidebarLocation(section: .favorites, name: "ホーム", url: home, systemImage: "house"),
-            SidebarLocation(section: .favorites, name: "デスクトップ", url: home.appendingPathComponent("Desktop", isDirectory: true), systemImage: "menubar.dock.rectangle"),
-            SidebarLocation(section: .favorites, name: "書類", url: home.appendingPathComponent("Documents", isDirectory: true), systemImage: "doc"),
-            SidebarLocation(section: .favorites, name: "ダウンロード", url: home.appendingPathComponent("Downloads", isDirectory: true), systemImage: "arrow.down.circle")
+            SidebarLocation(section: .favorites, name: L10n.tr("ホーム"), url: home, systemImage: "house"),
+            SidebarLocation(section: .favorites, name: L10n.tr("デスクトップ"), url: home.appendingPathComponent("Desktop", isDirectory: true), systemImage: "menubar.dock.rectangle"),
+            SidebarLocation(section: .favorites, name: L10n.tr("書類"), url: home.appendingPathComponent("Documents", isDirectory: true), systemImage: "doc"),
+            SidebarLocation(section: .favorites, name: L10n.tr("ダウンロード"), url: home.appendingPathComponent("Downloads", isDirectory: true), systemImage: "arrow.down.circle")
         ]
         let keys: [URLResourceKey] = [.volumeNameKey, .volumeIsInternalKey, .volumeIsRemovableKey,
                                       .volumeIsEjectableKey]
@@ -459,7 +462,7 @@ struct FinderSidebarView: View {
     var body: some View {
         List {
             ForEach([SidebarLocation.Section.favorites, .devices], id: \.self) { section in
-                Section(section.rawValue) {
+                Section(section.localizedTitle) {
                     ForEach(locations.filter { $0.section == section }) { location in
                         Button {
                             // No bookmark is fabricated or borrowed. If sandbox
@@ -513,7 +516,7 @@ final class TrashDropNSView: NSView {
     override func draw(_ dirtyRect: NSRect) {
         NSColor.clear.setFill()
         dirtyRect.fill()
-        let image = NSImage(systemSymbolName: targeted ? "trash.fill" : "trash", accessibilityDescription: "ゴミ箱")
+        let image = NSImage(systemSymbolName: targeted ? "trash.fill" : "trash", accessibilityDescription: L10n.tr("ゴミ箱"))
         image?.draw(in: bounds.insetBy(dx: 5, dy: 5))
     }
 

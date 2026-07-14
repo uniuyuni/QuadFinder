@@ -83,7 +83,7 @@ enum SecurityScopeError: LocalizedError {
     var errorDescription: String? {
         switch self {
         case .protectedLocation(let url):
-            "macOSが保護している場所へアクセスできません: \(url.path)。システム設定の「プライバシーとセキュリティ」でQuadFinderへのアクセスを確認してください。通常のユーザーフォルダにフルディスクアクセスは不要です。"
+            L10n.format("macOSが保護している場所へアクセスできません: %@。システム設定の「プライバシーとセキュリティ」でQuadFinderへのアクセスを確認してください。通常のユーザーフォルダにフルディスクアクセスは不要です。", url.path)
         }
     }
 }
@@ -194,10 +194,10 @@ extension WorkspaceStore {
             defer { scope?.stopAccessingSecurityScopedResource() }
             let outcome = try FinderActionService().moveToTrashRecording(request.urls)
             let allRestorable = outcome.historySteps.allSatisfy { $0.undoabilityReason == nil }
-            operationHistory.record(.init(kind: .trash, summary: "\(outcome.completedItems)項目をゴミ箱へ移動", steps: outcome.historySteps,
+            operationHistory.record(.init(kind: .trash, summary: L10n.format("%lld項目をゴミ箱へ移動", Int64(outcome.completedItems)), steps: outcome.historySteps,
                                           itemCount: outcome.completedItems,
                                           sourceBookmark: request.accessBookmark, targetBookmark: request.accessBookmark, undoable: allRestorable,
-                                          reason: allRestorable ? nil : "OSからゴミ箱内の復元URLを取得できませんでした"))
+                                          reason: allRestorable ? nil : L10n.tr("OSからゴミ箱内の復元URLを取得できませんでした")))
             for directory in Set(request.urls.map { $0.deletingLastPathComponent() }) {
                 NotificationCenter.default.post(name: .quadFinderDirectoryDidChange, object: directory)
             }
@@ -205,13 +205,13 @@ extension WorkspaceStore {
         } catch let partial as PartialOperationFailure {
             if !partial.outcome.historySteps.isEmpty {
                 let reason = partial.outcome.historySteps.compactMap(\.undoabilityReason).first
-                operationHistory.record(.init(kind: .trash, summary: "\(partial.outcome.completedItems)項目をゴミ箱へ移動（一部完了）",
+                operationHistory.record(.init(kind: .trash, summary: L10n.format("%lld項目をゴミ箱へ移動（一部完了）", Int64(partial.outcome.completedItems)),
                     steps: partial.outcome.historySteps, itemCount: partial.outcome.completedItems,
                     sourceBookmark: request.accessBookmark, targetBookmark: request.accessBookmark,
                     undoable: reason == nil, reason: reason))
             }
-            report("ゴミ箱へ移動できません", error: partial.underlying)
-        } catch { report("ゴミ箱へ移動できません", error: error) }
+            report(L10n.tr("ゴミ箱へ移動できません"), error: partial.underlying)
+        } catch { report(L10n.tr("ゴミ箱へ移動できません"), error: error) }
     }
 }
 
@@ -219,16 +219,16 @@ struct TrashConfirmationModifier: ViewModifier {
     @EnvironmentObject private var workspace: WorkspaceStore
     func body(content: Content) -> some View {
         content.confirmationDialog(
-            "ゴミ箱に入れますか？",
+            L10n.tr("ゴミ箱に入れますか？"),
             isPresented: Binding(
                 get: { workspace.pendingTrash != nil },
                 set: { if !$0 { workspace.pendingTrash = nil } }
             ), titleVisibility: .visible
         ) {
-            Button("ゴミ箱に入れる", role: .destructive) { workspace.confirmPendingTrash() }
-            Button("キャンセル", role: .cancel) { workspace.pendingTrash = nil }
+            Button(L10n.tr("ゴミ箱に入れる"), role: .destructive) { workspace.confirmPendingTrash() }
+            Button(L10n.tr("キャンセル"), role: .cancel) { workspace.pendingTrash = nil }
         } message: {
-            Text("\(workspace.pendingTrash?.urls.count ?? 0)項目をゴミ箱に移動します。完全削除は行いません。")
+            Text(L10n.format("%lld項目をゴミ箱に移動します。完全削除は行いません。", Int64(workspace.pendingTrash?.urls.count ?? 0)))
         }
     }
 }
@@ -433,7 +433,7 @@ final class GetInfoModel: ObservableObject, Identifiable {
                             url: url, isDirectory: values.isDirectory == true,
                             size: values.fileSize.map(Int64.init), created: values.creationDate,
                             modified: values.contentModificationDate,
-                            kind: values.localizedTypeDescription ?? "不明", permissions: permissions
+                            kind: values.localizedTypeDescription ?? L10n.tr("不明"), permissions: permissions
                         )
                     }
                 }.value
@@ -484,13 +484,13 @@ final class GetInfoModel: ObservableObject, Identifiable {
         panel.canChooseFiles = false
         panel.canChooseDirectories = true
         panel.allowsMultipleSelection = false
-        panel.prompt = "許可"
-        panel.message = "対象を含むフォルダを選択してください。"
+        panel.prompt = L10n.tr("許可")
+        panel.message = L10n.tr("対象を含むフォルダを選択してください。")
         panel.directoryURL = authorizationURLs.first
         guard panel.runModal() == .OK, let grantedURL = panel.url else { return }
         let access = SecurityScopeAccess()
         guard authorizationURLs.allSatisfy({ access.contains(scopeURL: grantedURL, requestedURL: $0) }) else {
-            errorMessage = "選択したフォルダには対象項目が含まれていません。対象を含むフォルダを選択してください。"
+            errorMessage = L10n.tr("選択したフォルダには対象項目が含まれていません。対象を含むフォルダを選択してください。")
             return
         }
         let persistedBookmark = try? FileSystemService.bookmark(for: grantedURL)
@@ -503,24 +503,24 @@ struct GetInfoSheet: View {
     @Environment(\.dismiss) private var dismiss
     var body: some View {
         VStack(alignment: .leading, spacing: 10) {
-            HStack { Text("情報を見る").font(.title2.bold()); Spacer(); Button("閉じる") { dismiss() } }
+            HStack { Text(L10n.tr("情報を見る")).font(.title2.bold()); Spacer(); Button(L10n.tr("閉じる")) { dismiss() } }
             if let error = model.errorMessage {
                 Text(error).foregroundStyle(.red)
-                Button("フォルダを選択して許可…") { model.authorizeAndRetry() }
+                Button(L10n.tr("フォルダを選択して許可…")) { model.authorizeAndRetry() }
             }
             if model.items.contains(where: \.isDirectory) {
                 HStack {
                     if model.isCalculatingSize {
-                        ProgressView().controlSize(.small).accessibilityLabel("フォルダサイズを計算中")
-                        Text("\(model.folderSizeProgress?.itemCount ?? 0)項目を計算中…")
+                        ProgressView().controlSize(.small).accessibilityLabel(L10n.tr("フォルダサイズを計算中"))
+                        Text(L10n.format("%lld項目を計算中…", Int64(model.folderSizeProgress?.itemCount ?? 0)))
                         Spacer()
-                        Button("キャンセル") { model.cancelFolderSize() }
+                        Button(L10n.tr("キャンセル")) { model.cancelFolderSize() }
                     } else {
-                        Button("フォルダサイズを計算") { model.calculateFolderSize() }
+                        Button(L10n.tr("フォルダサイズを計算")) { model.calculateFolderSize() }
                         if let size = model.folderSize {
-                            Text("論理サイズ \(ByteCountFormatter.string(fromByteCount: size.logicalBytes, countStyle: .file))（\(size.itemCount)項目、読取エラー \(size.errorCount)）")
+                            Text(L10n.format("論理サイズ %1$@（%2$lld項目、読取エラー %3$lld）", ByteCountFormatter.string(fromByteCount: size.logicalBytes, countStyle: .file), Int64(size.itemCount), Int64(size.errorCount)))
                                 .foregroundStyle(size.errorCount == 0 ? Color.secondary : Color.orange)
-                                .help("ファイル内容の論理サイズです。APFSの共有ブロックや圧縮を反映したディスク使用量ではありません。")
+                                .help(L10n.tr("ファイル内容の論理サイズです。APFSの共有ブロックや圧縮を反映したディスク使用量ではありません。"))
                         }
                     }
                 }
@@ -529,9 +529,9 @@ struct GetInfoSheet: View {
                 VStack(alignment: .leading, spacing: 4) {
                     Label(item.url.lastPathComponent, systemImage: item.isDirectory ? "folder" : "doc")
                     Text(item.url.path).font(.caption).foregroundStyle(.secondary).textSelection(.enabled)
-                    Text("種類: \(item.kind)　サイズ: \(item.size.map { ByteCountFormatter.string(fromByteCount: $0, countStyle: .file) } ?? "—")　アクセス権: \(item.permissions)")
+                    Text(L10n.format("種類: %1$@　サイズ: %2$@　アクセス権: %3$@", item.kind, item.size.map { ByteCountFormatter.string(fromByteCount: $0, countStyle: .file) } ?? "—", item.permissions))
                         .font(.caption)
-                    Text("作成: \(item.created?.formatted(date: .numeric, time: .standard) ?? "—")　変更: \(item.modified?.formatted(date: .numeric, time: .standard) ?? "—")")
+                    Text(L10n.format("作成: %1$@　変更: %2$@", item.created?.formatted(date: .numeric, time: .standard) ?? "—", item.modified?.formatted(date: .numeric, time: .standard) ?? "—"))
                         .font(.caption)
                 }
             }
@@ -550,6 +550,8 @@ struct SidebarFavorite: Identifiable, Codable, Equatable, Sendable {
     init(id: UUID = UUID(), name: String, url: URL, bookmark: Data? = nil, isDefault: Bool = false) {
         self.id = id; self.name = name; self.url = url; self.bookmark = bookmark; self.isDefault = isDefault
     }
+
+    var localizedName: String { isDefault ? L10n.tr(name) : name }
 }
 
 struct SidebarRecentItem: Identifiable, Codable, Equatable, Sendable {
@@ -586,7 +588,7 @@ struct SidebarEjectError: LocalizedError, Sendable {
     }
 
     var errorDescription: String? {
-        "「\(deviceName)」を取り出せませんでした。使用中のファイルやアプリを閉じて、もう一度お試しください。\n\(underlyingDescription)"
+        L10n.format("「%1$@」を取り出せませんでした。使用中のファイルやアプリを閉じて、もう一度お試しください。\n%2$@", deviceName, underlyingDescription)
     }
 }
 
@@ -1147,11 +1149,11 @@ struct NativeSidebarFavoritesView: NSViewRepresentable {
                 cell.identifier = id
                 return cell
             }()
-            cell.titleField.stringValue = favorite.name
+            cell.titleField.stringValue = favorite.localizedName
             cell.configure(icon: SidebarFavoriteIcon.image(for: favorite),
                            treatment: SidebarFavoriteIcon.treatment(for: favorite),
                            selected: tableView.selectedRow == row,
-                           accessibilityLabel: favorite.name)
+                           accessibilityLabel: favorite.localizedName)
             return cell
         }
 
@@ -1258,12 +1260,12 @@ struct NativeSidebarFavoritesView: NSViewRepresentable {
             let favorite = parent.store.favorites[row]
             let menu = NSMenu()
             if !favorite.isDefault {
-                let remove = NSMenuItem(title: "サイドバーから取り除く", action: #selector(removeFavorite(_:)), keyEquivalent: "")
+                let remove = NSMenuItem(title: L10n.tr("サイドバーから取り除く"), action: #selector(removeFavorite(_:)), keyEquivalent: "")
                 remove.representedObject = favorite.id
                 remove.target = self
                 menu.addItem(remove)
             }
-            let copy = NSMenuItem(title: "パスをコピー", action: #selector(copyPath(_:)), keyEquivalent: "")
+            let copy = NSMenuItem(title: L10n.tr("パスをコピー"), action: #selector(copyPath(_:)), keyEquivalent: "")
             copy.representedObject = favorite.url
             copy.target = self
             menu.addItem(copy)
@@ -1488,7 +1490,7 @@ enum SidebarFavoriteIcon {
 
     static func image(for favorite: SidebarFavorite) -> NSImage {
         if let symbolName = symbolName(for: favorite),
-           let image = NSImage(systemSymbolName: symbolName, accessibilityDescription: favorite.name) {
+           let image = NSImage(systemSymbolName: symbolName, accessibilityDescription: favorite.localizedName) {
             image.isTemplate = true
             return image
         }
@@ -1516,7 +1518,7 @@ struct PersistentFinderSidebarView: View {
 
     var body: some View {
         List {
-            Section("よく使う項目") {
+            Section(L10n.tr("よく使う項目")) {
                 NativeSidebarFavoritesView(store: store, navigate: navigate, perform: performDrop)
                     .frame(maxWidth: .infinity, alignment: .topLeading)
                     .frame(height: CGFloat(store.favorites.count) * NativeSidebarFavoritesView.rowHeight,
@@ -1524,17 +1526,17 @@ struct PersistentFinderSidebarView: View {
                     .listRowInsets(.init(top: 0, leading: 0, bottom: 0, trailing: 0))
                     .listRowBackground(Color.clear)
             }
-            Section("デバイス") {
+            Section(L10n.tr("デバイス")) {
                 ForEach(store.devices) { device in
                     deviceRow(device)
                 }
             }
             if !store.recents.isEmpty {
-                Section("履歴") {
+                Section(L10n.tr("履歴")) {
                     ForEach(store.recents) { recent in
                         recentRow(recent)
                     }
-                    Button("履歴を消去", role: .destructive) { store.clearRecents() }
+                    Button(L10n.tr("履歴を消去"), role: .destructive) { store.clearRecents() }
                         .font(.caption)
                 }
             }
@@ -1558,10 +1560,10 @@ struct PersistentFinderSidebarView: View {
                     else { Image(systemName: "eject.fill").font(.caption).foregroundStyle(.secondary).contentShape(Rectangle()) }
                 }
                 .buttonStyle(.plain).disabled(store.ejectingDeviceIDs.contains(device.id))
-                .help("\(device.name)を取り出す").accessibilityLabel("\(device.name)を取り出す")
+                .help(L10n.format("%@を取り出す", device.name)).accessibilityLabel(L10n.format("%@を取り出す", device.name))
             }
         }
-        .contextMenu { if device.isEjectable { Button("取り出す") { eject(device) }.disabled(store.ejectingDeviceIDs.contains(device.id)) } }
+        .contextMenu { if device.isEjectable { Button(L10n.tr("取り出す")) { eject(device) }.disabled(store.ejectingDeviceIDs.contains(device.id)) } }
         .background(rowHighlight(for: .directory(device.url)))
         .overlay {
             SidebarNativeDropTarget(zone: .directory(device.url), targetBookmark: nil,
@@ -1581,7 +1583,7 @@ struct PersistentFinderSidebarView: View {
             .frame(maxWidth: .infinity, alignment: .leading).frame(height: Self.compactRowHeight)
         }
         .buttonStyle(.plain).help(recent.url.path(percentEncoded: false))
-        .contextMenu { Button("履歴から削除") { store.removeRecent(recent.url) } }
+        .contextMenu { Button(L10n.tr("履歴から削除")) { store.removeRecent(recent.url) } }
         .background(rowHighlight(for: recent.kind == .folder ? .directory(recent.url) : .unavailable))
         .modifier(RecentFolderDropModifier(
             recent: recent, fileDropTypes: fileDropTypes,

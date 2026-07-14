@@ -29,7 +29,7 @@ final class PaneSetStore: ObservableObject {
         let trimmed = name.trimmingCharacters(in: .whitespacesAndNewlines)
         let paneSet = NamedPaneSet(
             id: UUID(),
-            name: trimmed.isEmpty ? "名称未設定" : trimmed,
+            name: trimmed.isEmpty ? L10n.tr("名称未設定") : trimmed,
             workspace: workspace,
             createdAt: Date()
         )

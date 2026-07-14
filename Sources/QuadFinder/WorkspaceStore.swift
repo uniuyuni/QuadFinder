@@ -74,7 +74,7 @@ final class WorkspaceStore: ObservableObject {
             self.state = restored
         } catch {
             self.state = .initial()
-            self.error = UserFacingError(title: "状態を復元できませんでした", message: error.localizedDescription)
+            self.error = UserFacingError(title: L10n.tr("状態を復元できませんでした"), message: error.localizedDescription)
         }
         directoryMonitor.update(urls: Set(state.panes.map(\.currentURL)))
         DragModifierTracker.shared.start()
@@ -82,13 +82,13 @@ final class WorkspaceStore: ObservableObject {
 
     func undoLastFileOperation() {
         guard let entry = operationHistory.nextUndo else { return }
-        guard confirmLargeHistoryOperationIfNeeded(entry, verb: "取り消し") else { return }
+        guard confirmLargeHistoryOperationIfNeeded(entry, verb: L10n.tr("取り消し")) else { return }
         enqueueHistoryReplay(entry, direction: .undo)
     }
 
     func redoLastFileOperation() {
         guard let entry = operationHistory.nextRedo else { return }
-        guard confirmLargeHistoryOperationIfNeeded(entry, verb: "やり直し") else { return }
+        guard confirmLargeHistoryOperationIfNeeded(entry, verb: L10n.tr("やり直し")) else { return }
         enqueueHistoryReplay(entry, direction: .redo)
     }
 
@@ -102,10 +102,10 @@ final class WorkspaceStore: ObservableObject {
     private func confirmLargeHistoryOperationIfNeeded(_ entry: OperationHistoryEntry, verb: String) -> Bool {
         guard LargeHistoryOperationPolicy.requiresConfirmation(entry) else { return true }
         let alert = NSAlert()
-        alert.messageText = "大きな操作を\(verb)ますか？"
-        alert.informativeText = "\(entry.summary)（\(entry.itemCount)項目、\(ByteCountFormatter.string(fromByteCount: entry.byteCount, countStyle: .file))）"
+        alert.messageText = L10n.format("大きな操作を%@ますか？", verb)
+        alert.informativeText = L10n.format("%1$@（%2$lld項目、%3$@）", entry.summary, Int64(entry.itemCount), ByteCountFormatter.string(fromByteCount: entry.byteCount, countStyle: .file))
         alert.addButton(withTitle: verb)
-        alert.addButton(withTitle: "キャンセル")
+        alert.addButton(withTitle: L10n.tr("キャンセル"))
         return alert.runModal() == .alertFirstButtonReturn
     }
 
@@ -405,7 +405,7 @@ final class WorkspaceStore: ObservableObject {
     func startComparison(usesChecksums: Bool) {
         guard case .pair(let sourceID, let targetID) = state.moduleSettings.comparison.context,
               let source = pane(id: sourceID), let target = pane(id: targetID) else {
-            error = UserFacingError(title: "比較対象がありません", message: "アクティブペインと比較する別ペインを選択してください。")
+            error = UserFacingError(title: L10n.tr("比較対象がありません"), message: L10n.tr("アクティブペインと比較する別ペインを選択してください。"))
             return
         }
         comparisonController.start(ComparisonRequest(
@@ -515,7 +515,7 @@ final class WorkspaceStore: ObservableObject {
                     guard let fp = HistoryFingerprint.capture(target) else { return nil }
                     return .symbolicLink(source: source, target: target, targetFingerprint: fp)
                 }
-                operationHistory.record(.init(kind: .symbolicLink, summary: "\(steps.count)個のシンボリックリンクを作成", steps: steps, itemCount: steps.count,
+                operationHistory.record(.init(kind: .symbolicLink, summary: L10n.format("%lld個のシンボリックリンクを作成", Int64(steps.count)), steps: steps, itemCount: steps.count,
                                               sourceBookmark: request.sourceAccessBookmark, targetBookmark: request.targetAccessBookmark))
                 NotificationCenter.default.post(name: .quadFinderDirectoryDidChange, object: targetDirectoryURL)
             } catch let partial as PartialOperationFailure {
@@ -526,16 +526,16 @@ final class WorkspaceStore: ObservableObject {
                 }
                 if !partial.outcome.historySteps.isEmpty {
                     operationHistory.record(.init(kind: .symbolicLink,
-                        summary: "\(partial.outcome.historySteps.count)個のシンボリックリンクを作成（一部完了）",
+                        summary: L10n.format("%lld個のシンボリックリンクを作成（一部完了）", Int64(partial.outcome.historySteps.count)),
                         steps: partial.outcome.historySteps, itemCount: partial.outcome.completedItems,
                         sourceBookmark: request.sourceAccessBookmark, targetBookmark: request.targetAccessBookmark))
                 }
-                report("シンボリックリンクを作成できません", error: partial.underlying)
+                report(L10n.tr("シンボリックリンクを作成できません"), error: partial.underlying)
             } catch {
                 if isPermissionFailure(error) {
                     retrySymbolicLinkAfterAuthorization(request, sourcePaneID: sourcePaneID, targetPaneID: targetPaneID)
                 } else {
-                    report("シンボリックリンクを作成できません", error: error)
+                    report(L10n.tr("シンボリックリンクを作成できません"), error: error)
                 }
             }
             DragModifierTracker.shared.reset()
@@ -565,7 +565,7 @@ final class WorkspaceStore: ObservableObject {
         let sourceRequirements = request.sourceURLs.map { $0.deletingLastPathComponent() }
         guard let sourceGrant = requestFolderGrant(
             covering: sourceRequirements, initialURL: sourceRequirements.first,
-            message: "シンボリックリンク元を含むフォルダを選択してください。"
+            message: L10n.tr("シンボリックリンク元を含むフォルダを選択してください。")
         ) else { return }
 
         let access = SecurityScopeAccess()
@@ -575,7 +575,7 @@ final class WorkspaceStore: ObservableObject {
         } else {
             guard let grant = requestFolderGrant(
                 covering: [request.targetDirectoryURL], initialURL: request.targetDirectoryURL,
-                message: "シンボリックリンクの作成先フォルダを選択してください。"
+                message: L10n.tr("シンボリックリンクの作成先フォルダを選択してください。")
             ) else { return }
             targetGrant = grant
         }
@@ -593,7 +593,7 @@ final class WorkspaceStore: ObservableObject {
                 return .symbolicLink(source: source, target: target, targetFingerprint: fingerprint)
             }
             operationHistory.record(.init(
-                kind: .symbolicLink, summary: "\(steps.count)個のシンボリックリンクを作成", steps: steps,
+                kind: .symbolicLink, summary: L10n.format("%lld個のシンボリックリンクを作成", Int64(steps.count)), steps: steps,
                 itemCount: steps.count, sourceBookmark: retried.sourceAccessBookmark,
                 targetBookmark: retried.targetAccessBookmark
             ))
@@ -601,7 +601,7 @@ final class WorkspaceStore: ObservableObject {
         } catch {
             // This is the one permitted retry. Surface the real Cocoa/POSIX
             // failure without requesting authorization again.
-            report("シンボリックリンクを作成できません", error: error)
+            report(L10n.tr("シンボリックリンクを作成できません"), error: error)
         }
     }
 
@@ -613,12 +613,12 @@ final class WorkspaceStore: ObservableObject {
         panel.canChooseDirectories = true
         panel.allowsMultipleSelection = false
         panel.directoryURL = initialURL
-        panel.prompt = "許可"
+        panel.prompt = L10n.tr("許可")
         panel.message = message
         guard panel.runModal() == .OK, let grantedURL = panel.url else { return nil }
         guard requestedURLs.allSatisfy({ SecurityScopeAccess().contains(scopeURL: grantedURL, requestedURL: $0) }) else {
-            report("フォルダを使用できません", error: CocoaError(.fileReadNoPermission,
-                userInfo: [NSLocalizedDescriptionKey: "選択したフォルダには対象が含まれていません。"] ))
+            report(L10n.tr("フォルダを使用できません"), error: CocoaError(.fileReadNoPermission,
+                userInfo: [NSLocalizedDescriptionKey: L10n.tr("選択したフォルダには対象が含まれていません。")] ))
             return nil
         }
         return (grantedURL, try? FileSystemService.bookmark(for: grantedURL))
@@ -666,12 +666,12 @@ final class WorkspaceStore: ObservableObject {
 
     func prepareExplicitTransfer(kind: FileOperationKind) {
         guard let source = activePane, !source.selectedURLs.isEmpty else {
-            error = UserFacingError(title: "項目が選択されていません", message: "アクティブペインでコピーまたは移動する項目を選択してください。")
+            error = UserFacingError(title: L10n.tr("項目が選択されていません"), message: L10n.tr("アクティブペインでコピーまたは移動する項目を選択してください。"))
             return
         }
         let destinations = destinationCandidates(excluding: source.id)
         guard !destinations.isEmpty else {
-            error = UserFacingError(title: "コピー先がありません", message: "別のペインを追加してください。")
+            error = UserFacingError(title: L10n.tr("コピー先がありません"), message: L10n.tr("別のペインを追加してください。"))
             return
         }
         let transfer = PendingTransfer(
@@ -709,7 +709,7 @@ final class WorkspaceStore: ObservableObject {
 
     func savePaneSet(named name: String) {
         do { _ = try paneSets.save(name: name, workspace: state) }
-        catch { report("ペインセットを保存できません", error: error) }
+        catch { report(L10n.tr("ペインセットを保存できません"), error: error) }
     }
 
     func applyPaneSet(_ id: UUID) {
@@ -723,7 +723,7 @@ final class WorkspaceStore: ObservableObject {
 
     func deletePaneSet(_ id: UUID) {
         do { try paneSets.delete(id) }
-        catch { report("ペインセットを削除できません", error: error) }
+        catch { report(L10n.tr("ペインセットを削除できません"), error: error) }
     }
 
     func updateModuleSettings(_ change: (inout ModuleSettings) -> Void) {
@@ -739,7 +739,7 @@ final class WorkspaceStore: ObservableObject {
     func save() {
         directoryMonitor.update(urls: Set(state.panes.map(\.currentURL)))
         do { try persistence.save(state) }
-        catch { self.error = UserFacingError(title: "状態を保存できませんでした", message: error.localizedDescription) }
+        catch { self.error = UserFacingError(title: L10n.tr("状態を保存できませんでした"), message: error.localizedDescription) }
     }
 
     private func compactSlots() {
@@ -813,7 +813,7 @@ final class WorkspaceStore: ObservableObject {
                     self.navigate(paneID: id, to: candidate, propagateLinks: false)
                     self.paneNotifications[id] = nil
                 } else {
-                    self.paneNotifications[id] = "リンク先に「\(childName)」がありません"
+                    self.paneNotifications[id] = L10n.format("リンク先に「%@」がありません", childName)
                 }
             }
         }
@@ -848,7 +848,7 @@ final class WorkspaceStore: ObservableObject {
                     self.setSelection(Set(urls), in: id, propagateLinks: false)
                     self.paneNotifications[id] = nil
                 } else {
-                    self.paneNotifications[id] = "リンク先に対応する選択項目がありません"
+                    self.paneNotifications[id] = L10n.tr("リンク先に対応する選択項目がありません")
                 }
             }
         }

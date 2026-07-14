@@ -30,8 +30,8 @@ struct PathBreadcrumbView: View {
                         .font(.callout)
                         .lineLimit(1)
                         .contextMenu {
-                            Button("この場所へ移動") { navigate(component.1) }
-                            Button("パスをコピー") {
+                            Button(L10n.tr("この場所へ移動")) { navigate(component.1) }
+                            Button(L10n.tr("パスをコピー")) {
                                 NSPasteboard.general.clearContents()
                                 NSPasteboard.general.setString(component.1.path(percentEncoded: false), forType: .string)
                             }

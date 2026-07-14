@@ -16,16 +16,16 @@ struct SelectionInfoModuleView: View {
     var body: some View {
         VStack(alignment: .leading, spacing: 8) {
             HStack {
-                Label("選択情報", systemImage: "info.circle")
+                Label(L10n.tr("選択情報"), systemImage: "info.circle")
                     .font(.headline)
                 Spacer()
                 Menu {
-                    Button("アクティブペインに追従") {
+                    Button(L10n.tr("アクティブペインに追従")) {
                         workspace.updateModuleSettings { $0.selectionInfo.context = .active }
                     }
                     Divider()
                     ForEach(Array(workspace.state.orderedPaneIDs.enumerated()), id: \.element) { index, id in
-                        Button("ペイン\(index + 1)に固定") {
+                        Button(L10n.format("ペイン%lldに固定", Int64(index + 1))) {
                             workspace.updateModuleSettings { $0.selectionInfo.context = .pinned(id) }
                         }
                     }
@@ -43,7 +43,7 @@ struct SelectionInfoModuleView: View {
                     .foregroundStyle(.secondary)
                     .textSelection(.enabled)
                 if pane.selectedURLs.isEmpty {
-                    ContentUnavailableView("選択なし", systemImage: "cursorarrow")
+                    ContentUnavailableView(L10n.tr("選択なし"), systemImage: "cursorarrow")
                 } else {
                     List(Array(pane.selectedURLs).sorted(by: { $0.path < $1.path }), id: \.self) { url in
                         HStack {
@@ -70,11 +70,11 @@ struct OperationQueueModuleView: View {
     var body: some View {
         VStack(spacing: 6) {
             HStack {
-                Label("操作キュー", systemImage: "list.bullet.rectangle")
+                Label(L10n.tr("操作キュー"), systemImage: "list.bullet.rectangle")
                     .font(.headline)
-                Text("Window").font(.caption).foregroundStyle(.secondary)
+                Text(L10n.tr("Window")).font(.caption).foregroundStyle(.secondary)
                 Spacer()
-                Button("完了履歴を消去") { queue.clearCompleted() }
+                Button(L10n.tr("完了履歴を消去")) { queue.clearCompleted() }
                     .disabled(!queue.jobs.contains { $0.status.isFinished })
                 Button {
                     workspace.updateModuleSettings { $0.operationQueue.isVisible = false }
@@ -82,17 +82,17 @@ struct OperationQueueModuleView: View {
                     .buttonStyle(.borderless)
             }
             if queue.jobs.isEmpty {
-                Text("ファイル操作はありません").foregroundStyle(.secondary).frame(maxWidth: .infinity)
+                Text(L10n.tr("ファイル操作はありません")).foregroundStyle(.secondary).frame(maxWidth: .infinity)
             } else {
                 ScrollView(.horizontal) {
                     HStack(spacing: 8) {
                         ForEach(queue.jobs) { job in
                             VStack(alignment: .leading, spacing: 3) {
                                 HStack {
-                                    Text(job.operation.kind.rawValue).bold()
-                                    Text(job.status.rawValue).foregroundStyle(statusColor(job.status))
+                                    Text(job.operation.kind.localizedTitle).bold()
+                                    Text(job.status.localizedTitle).foregroundStyle(statusColor(job.status))
                                     if !job.status.isFinished {
-                                        Button("中止") { queue.stop(job.id) }.controlSize(.small)
+                                        Button(L10n.tr("中止")) { queue.stop(job.id) }.controlSize(.small)
                                     }
                                 }
                                 Text(job.sourceDescription).lineLimit(1)
@@ -142,16 +142,16 @@ struct FileOperationProgressBadge: View {
                     Text("\(ByteCountFormatter.string(fromByteCount: summary.completedBytes, countStyle: .file))/\(ByteCountFormatter.string(fromByteCount: summary.totalBytes, countStyle: .file))")
                         .font(.caption2.monospacedDigit()).foregroundStyle(.secondary)
                 }
-                if summary.waitingCount > 0 { Text("待機 \(summary.waitingCount)").font(.caption2) }
+                if summary.waitingCount > 0 { Text(L10n.format("待機 %lld", Int64(summary.waitingCount))).font(.caption2) }
               }
             }.buttonStyle(.plain)
             .popover(isPresented: $showsQueue, arrowEdge: .bottom) {
                 FileOperationQueuePopover(queue: queue)
             }
             .frame(maxWidth: 190)
-            .help("ファイル操作の進捗")
+            .help(L10n.tr("ファイル操作の進捗"))
             .accessibilityElement(children: .combine)
-            .accessibilityLabel("ファイル操作の進捗 \(Int(summary.fractionCompleted * 100))パーセント")
+            .accessibilityLabel(L10n.format("ファイル操作の進捗 %lldパーセント", Int64(summary.fractionCompleted * 100)))
         }
     }
 }
@@ -161,24 +161,24 @@ private struct FileOperationQueuePopover: View {
 
     var body: some View {
         VStack(alignment: .leading, spacing: 8) {
-            HStack { Label("ファイル操作キュー", systemImage: "list.bullet.rectangle").font(.headline); Spacer(); Button("完了を消去") { queue.clearCompleted() } }
-            if queue.jobs.isEmpty { Text("ファイル操作はありません").foregroundStyle(.secondary) }
+            HStack { Label(L10n.tr("ファイル操作キュー"), systemImage: "list.bullet.rectangle").font(.headline); Spacer(); Button(L10n.tr("完了を消去")) { queue.clearCompleted() } }
+            if queue.jobs.isEmpty { Text(L10n.tr("ファイル操作はありません")).foregroundStyle(.secondary) }
             else {
                 ScrollView {
                     LazyVStack(spacing: 8) {
                         ForEach(queue.jobs) { job in
                             VStack(alignment: .leading, spacing: 4) {
                                 HStack {
-                                    Text(job.operation.kind.rawValue).bold()
-                                    Text(job.status.rawValue).foregroundStyle(job.status == .failed ? .red : .secondary)
+                                    Text(job.operation.kind.localizedTitle).bold()
+                                    Text(job.status.localizedTitle).foregroundStyle(job.status == .failed ? .red : .secondary)
                                     Spacer()
-                                    if !job.status.isFinished { Button("中止") { queue.stop(job.id) }.controlSize(.small) }
+                                    if !job.status.isFinished { Button(L10n.tr("中止")) { queue.stop(job.id) }.controlSize(.small) }
                                 }
                                 Text(job.sourceDescription).lineLimit(1).help(job.sourceDescription)
                                 if let progress = job.progress {
                                     ProgressView(value: progress.fractionCompleted)
                                     HStack {
-                                        Text("\(progress.completedItems)/\(progress.totalItems)項目")
+                                        Text(L10n.format("%1$lld/%2$lld項目", Int64(progress.completedItems), Int64(progress.totalItems)))
                                         Spacer()
                                         if progress.totalBytes > 0 { Text("\(ByteCountFormatter.string(fromByteCount: progress.completedBytes, countStyle: .file)) / \(ByteCountFormatter.string(fromByteCount: progress.totalBytes, countStyle: .file))") }
                                     }.font(.caption.monospacedDigit()).foregroundStyle(.secondary)

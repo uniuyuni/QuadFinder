@@ -3,10 +3,10 @@ import AppKit
 /// Single source of truth for development builds. Distribution builds may
 /// override these values with MARKETING_VERSION/CURRENT_PROJECT_VERSION.
 enum AppVersion {
-    static let marketing = "1.3.7"
-    static let build = "10"
+    static let marketing = "1.4.0"
+    static let build = "11"
 
-    static var display: String { "Version \(marketing) (\(build))" }
+    static var display: String { L10n.format("バージョン %@（%@）", marketing, build) }
 
     @MainActor
     static func showAboutPanel() {
@@ -14,7 +14,7 @@ enum AppVersion {
             .applicationName: "QuadFinder",
             .applicationVersion: marketing,
             .version: build,
-            .credits: NSAttributedString(string: "最大4ペインのmacOSファイルマネージャ")
+            .credits: NSAttributedString(string: L10n.tr("最大4ペインのmacOSファイルマネージャ"))
         ])
     }
 }

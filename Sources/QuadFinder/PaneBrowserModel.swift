@@ -45,7 +45,7 @@ final class PaneBrowserModel: ObservableObject {
                 // Cancellation is expected when this pane navigates again.
             } catch {
                 guard !Task.isCancelled, loadGeneration == generation else { return }
-                loadError = UserFacingError(title: "フォルダを開けません", message: error.localizedDescription)
+                loadError = UserFacingError(title: L10n.tr("フォルダを開けません"), message: error.localizedDescription)
             }
         }
     }

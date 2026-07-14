@@ -23,10 +23,10 @@ func makeNativeFinderContextMenu(
     let menu = NSMenu()
     let targets = Array(PaneSelectionPolicy.contextTargets(clicked: clickedURL, selection: selection))
     let groups: [[(String, FinderContextAction)]] = [
-        [("開く", .open), ("クイックルック", .quickLook), ("新規タブで開く", .openInNewTab)],
-        [("カット", .cut), ("コピー", .copy), ("貼り付け", .paste), ("複製", .duplicate), ("名前を変更…", .rename), ("新規フォルダ…", .newFolder)],
-        [("情報を見る", .getInfo), ("パスをコピー", .copyPath), ("Finderに表示", .revealInFinder)],
-        [("ゴミ箱に入れる", .trash)]
+        [(L10n.tr("開く"), .open), (L10n.tr("クイックルック"), .quickLook), (L10n.tr("新規タブで開く"), .openInNewTab)],
+        [(L10n.tr("カット"), .cut), (L10n.tr("コピー"), .copy), (L10n.tr("貼り付け"), .paste), (L10n.tr("複製"), .duplicate), (L10n.tr("名前を変更…"), .rename), (L10n.tr("新規フォルダ…"), .newFolder)],
+        [(L10n.tr("情報を見る"), .getInfo), (L10n.tr("パスをコピー"), .copyPath), (L10n.tr("Finderに表示"), .revealInFinder)],
+        [(L10n.tr("ゴミ箱に入れる"), .trash)]
     ]
     for (groupIndex, group) in groups.enumerated() {
         if groupIndex > 0 { menu.addItem(.separator()) }
@@ -43,7 +43,7 @@ func makeNativeFinderContextMenu(
         }
     }
     if model.isEnabled(.showPackageContents) {
-        menu.addItem(withTitle: "パッケージの内容を表示", action: action, keyEquivalent: "")
+        menu.addItem(withTitle: L10n.tr("パッケージの内容を表示"), action: action, keyEquivalent: "")
         menu.items.last?.target = target
         menu.items.last?.representedObject = FinderContextAction.showPackageContents.rawValue
     }
@@ -52,7 +52,7 @@ func makeNativeFinderContextMenu(
 
 @MainActor
 private func makeOpenWithMenu(url: URL, target: AnyObject, action: Selector) -> NSMenuItem {
-    let parent = NSMenuItem(title: "このアプリケーションで開く", action: nil, keyEquivalent: "")
+    let parent = NSMenuItem(title: L10n.tr("このアプリケーションで開く"), action: nil, keyEquivalent: "")
     let submenu = NSMenu(title: parent.title)
     let workspace = NSWorkspace.shared
     let defaultURL = workspace.urlForApplication(toOpen: url)?.standardizedFileURL
@@ -66,7 +66,7 @@ private func makeOpenWithMenu(url: URL, target: AnyObject, action: Selector) -> 
         return applicationName($0).localizedStandardCompare(applicationName($1)) == .orderedAscending
     }
     for appURL in applications {
-        let suffix = appURL == defaultURL ? "（デフォルト）" : ""
+        let suffix = appURL == defaultURL ? L10n.tr("（デフォルト）") : ""
         let item = NSMenuItem(title: applicationName(appURL) + suffix, action: action, keyEquivalent: "")
         item.target = target
         item.image = workspace.icon(forFile: appURL.path)
@@ -75,7 +75,7 @@ private func makeOpenWithMenu(url: URL, target: AnyObject, action: Selector) -> 
         submenu.addItem(item)
     }
     if !submenu.items.isEmpty { submenu.addItem(.separator()) }
-    let other = NSMenuItem(title: "その他…", action: action, keyEquivalent: "")
+    let other = NSMenuItem(title: L10n.tr("その他…"), action: action, keyEquivalent: "")
     other.target = target
     other.representedObject = NativeOpenWithCommand(nil)
     submenu.addItem(other)

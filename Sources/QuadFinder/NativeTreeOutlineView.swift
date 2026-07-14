@@ -86,11 +86,11 @@ struct NativeTreeOutlineView: NSViewRepresentable {
                 let isExpanded = parent.expandedURLs.contains(row.item.url)
                 button.image = NSImage(
                     systemSymbolName: isExpanded ? "chevron.down" : "chevron.right",
-                    accessibilityDescription: isExpanded ? "フォルダを閉じる" : "フォルダを開く"
+                    accessibilityDescription: isExpanded ? L10n.tr("フォルダを閉じる") : L10n.tr("フォルダを開く")
                 )
-                button.toolTip = isExpanded ? "フォルダを閉じる" : "フォルダを開く"
-                button.setAccessibilityLabel(isExpanded ? "フォルダを閉じる" : "フォルダを開く")
-                button.setAccessibilityValue(isExpanded ? "展開中" : "閉じています")
+                button.toolTip = isExpanded ? L10n.tr("フォルダを閉じる") : L10n.tr("フォルダを開く")
+                button.setAccessibilityLabel(isExpanded ? L10n.tr("フォルダを閉じる") : L10n.tr("フォルダを開く"))
+                button.setAccessibilityValue(isExpanded ? L10n.tr("展開中") : L10n.tr("閉じています"))
             }
             return cell
         }

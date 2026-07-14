@@ -168,37 +168,37 @@ struct LargeTextEditorView: View {
     var body: some View {
         VStack(spacing: 4) {
             HStack {
-                Label(controller.size >= 1_000_000_000 ? "1GB以上：読み取り専用" : (controller.isEditing ? "大容量編集モード" : "大容量読み取りモード"), systemImage: "doc.text.magnifyingglass")
+                Label(L10n.tr(controller.size >= 1_000_000_000 ? "1GB以上：読み取り専用" : (controller.isEditing ? "大容量編集モード" : "大容量読み取りモード")), systemImage: "doc.text.magnifyingglass")
                 Spacer()
-                if !controller.isEditing && controller.canEdit { Button("編集モードへ切り替える") { controller.enableEditing() } }
-                Button("保存") { save() }.disabled(!controller.isEditing)
+                if !controller.isEditing && controller.canEdit { Button(L10n.tr("編集モードへ切り替える")) { controller.enableEditing() } }
+                Button(L10n.tr("保存")) { save() }.disabled(!controller.isEditing)
             }.font(.caption)
             HStack {
-                Button("前") { controller.previous() }.disabled(!controller.hasPrevious)
-                Button("次") { controller.next() }
+                Button(L10n.tr("前")) { controller.previous() }.disabled(!controller.hasPrevious)
+                Button(L10n.tr("次")) { controller.next() }
                 TextField("byte offset", text: $offset).frame(width: 90).onSubmit { if let n = UInt64(offset) { controller.goToOffset(n) } }
-                TextField("行", text: $line).frame(width: 55).onSubmit { if let n = Int(line) { controller.buildIndexAndGo(to: n) } }
-                TextField("全体を検索", text: $controller.searchText).onSubmit { controller.search() }
-                Button("検索") { controller.search() }
-                if controller.searchProgress != nil { Button("中止") { controller.cancelScan() } }
-                if !controller.matches.isEmpty { Button("次 \(controller.currentMatch + 1)/\(controller.matches.count)") { controller.nextMatch() } }
+                TextField(L10n.tr("行"), text: $line).frame(width: 55).onSubmit { if let n = Int(line) { controller.buildIndexAndGo(to: n) } }
+                TextField(L10n.tr("全体を検索"), text: $controller.searchText).onSubmit { controller.search() }
+                Button(L10n.tr("検索")) { controller.search() }
+                if controller.searchProgress != nil { Button(L10n.tr("中止")) { controller.cancelScan() } }
+                if !controller.matches.isEmpty { Button(L10n.format("次 %1$lld/%2$lld", Int64(controller.currentMatch + 1), Int64(controller.matches.count))) { controller.nextMatch() } }
             }.controlSize(.small)
             if let progress = controller.searchProgress { ProgressView(value: progress) }
             NativePlainTextEditor(text: $controller.text, wraps: false, fontSize: 11, tabWidth: 4, showsInvisibles: false,
                 onChange: controller.userChanged, onSelection: { _,_,_ in },
                 onSave: { if controller.isDirty { save() } }, requestedLine: $requestedLine)
                 .disabled(!controller.isEditing)
-            HStack { Text("byte \(controller.offset) / \(controller.size)"); Spacer(); Text("64KiB page・64MB LRU") }.font(.caption2).foregroundStyle(.secondary)
+            HStack { Text("byte \(controller.offset) / \(controller.size)"); Spacer(); Text(L10n.tr("64KiB page・64MB LRU")) }.font(.caption2).foregroundStyle(.secondary)
         }
         .task(id: url) { await controller.select(url, encoding: encoding) }
         .onChange(of: controller.offset) { _, value in offset = String(value) }
-        .alert("大容量ファイルを保存できません", isPresented: Binding(get: { error != nil }, set: { if !$0 { error = nil } })) { Button("OK") {} } message: { Text(error ?? "") }
+        .alert(L10n.tr("大容量ファイルを保存できません"), isPresented: Binding(get: { error != nil }, set: { if !$0 { error = nil } })) { Button(L10n.tr("OK")) {} } message: { Text(error ?? "") }
     }
 
     private func save() { Task { do { if let result = try await controller.save() { record(result) } } catch { self.error = error.localizedDescription } } }
     private func record(_ result: TextSaveHistoryOutcome) {
         guard let before = result.beforeBackup, let after = result.afterBackup, let beforeFP = result.beforeFingerprint else { return }
-        history.record(.init(kind: .textEdit, summary: "大容量テキストを保存: \(result.target.lastPathComponent)",
+        history.record(.init(kind: .textEdit, summary: L10n.format("大容量テキストを保存: %@", result.target.lastPathComponent),
             steps: [.edited(file: result.target, beforeBackup: before, afterBackup: after,
                             beforeFingerprint: beforeFP, afterFingerprint: result.afterFingerprint)],
             itemCount: 1, byteCount: result.byteCount))

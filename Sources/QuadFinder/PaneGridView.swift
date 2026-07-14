@@ -138,7 +138,7 @@ struct PaneGridView: View {
     @ViewBuilder
     private func defensiveFallback(_ ids: [UUID]) -> some View {
         if ids.isEmpty {
-            ContentUnavailableView("ペインを復元できません", systemImage: "exclamationmark.triangle")
+            ContentUnavailableView(L10n.tr("ペインを復元できません"), systemImage: "exclamationmark.triangle")
         } else {
             VStack(spacing: 0) {
                 ForEach(Array(ids.enumerated()), id: \.element) { index, id in
@@ -178,7 +178,7 @@ struct DividerHandle: View {
                     height: axis == .vertical ? DividerMetrics.pointerHitThickness : nil
                 )
             }
-            .accessibilityLabel(axis == .horizontal ? "縦ディバイダ" : "横ディバイダ")
+            .accessibilityLabel(L10n.tr(axis == .horizontal ? "縦ディバイダ" : "横ディバイダ"))
             .accessibilityAdjustableAction { direction in
                 changed(ratio + (direction == .increment ? 0.01 : -0.01))
             }
