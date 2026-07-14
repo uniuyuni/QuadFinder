@@ -6,13 +6,14 @@ import SwiftUI
 /// asynchronous expansion can reload without manufacturing unstable node IDs.
 struct NativeTreeOutlineView: NSViewRepresentable {
     let paneID: UUID
+    let currentDirectory: URL
     let rows: [TreeRow]
     var expandedURLs: Set<URL> = []
     @Binding var selection: Set<URL>
     let activate: () -> Void
     let open: (FileItem) -> Void
     let toggle: (FileItem) -> Void
-    let receiveDrop: ([URL], UUID?) -> Void
+    let receiveDrop: ([URL], UUID?, URL, FinderDropIntent) -> Void
     let trashDropped: ([URL]) -> Void
     var sortDescriptor: FileSortDescriptor? = nil
     var selectSort: ((FileSortField) -> Void)? = nil
@@ -61,6 +62,8 @@ struct NativeTreeOutlineView: NSViewRepresentable {
         weak var outline: NativeFileNSOutlineView?
         private var applyingSelection = false
         private var contextClickedURL: URL?
+        fileprivate var permitsCurrentMouseDrag = true
+        private var validatedDrop: NativeValidatedDrop?
         init(_ parent: NativeTreeOutlineView) { self.parent = parent }
 
         func outlineView(_ outlineView: NSOutlineView, numberOfChildrenOfItem item: Any?) -> Int {
@@ -155,12 +158,7 @@ struct NativeTreeOutlineView: NSViewRepresentable {
             applyingSelection = true; outline.selectRowIndexes(indexes, byExtendingSelection: false); applyingSelection = false
         }
         func reload(_ outline: NSOutlineView) {
-            for column in outline.tableColumns { outline.setIndicatorImage(nil, in: column) }
-            if let sort = parent.sortDescriptor,
-               let kind = NativeFileColumn.allCases.first(where: { $0.sortField == sort.field }),
-               let column = outline.tableColumn(withIdentifier: kind.identifier) {
-                outline.setIndicatorImage(NSImage(named: sort.ascending ? "NSAscendingSortIndicator" : "NSDescendingSortIndicator"), in: column)
-            }
+            updateNativeSortIndicator(on: outline, sort: parent.sortDescriptor)
             applyingSelection = true
             outline.reloadData()
             let indexes = IndexSet(parent.rows.indices.filter { parent.selection.contains(parent.rows[$0].item.url) })
@@ -223,15 +221,37 @@ struct NativeTreeOutlineView: NSViewRepresentable {
             configuration.perform(action, clicked, parent.selection)
         }
         func outlineView(_ outlineView: NSOutlineView, pasteboardWriterForItem item: Any) -> NSPasteboardWriting? {
-            guard let row = item as? TreeRow else { return nil }
+            guard permitsCurrentMouseDrag, let row = item as? TreeRow else { return nil }
             return NativeFileDragPasteboard.item(for: .init(sourcePaneID: parent.paneID, url: row.item.url))
+        }
+        fileprivate func prepareMouseDown(at point: NSPoint, selectedRows: IndexSet) {
+            let row = outline?.row(at: point) ?? -1
+            permitsCurrentMouseDrag = NativeFileRowDragPolicy.canDrag(
+                row: row,
+                nameHitRow: outline.flatMap { NativeFileNameHitTesting.itemIndex(at: point, in: $0) },
+                selectedRowsBeforeMouseDown: selectedRows
+            )
+        }
+        private func dropTarget(row: Int) -> URL {
+            NativeFileDropTarget.resolve(row: row, items: parent.rows.map(\.item),
+                                         currentDirectory: parent.currentDirectory)
         }
         func outlineView(_ outlineView: NSOutlineView, validateDrop info: NSDraggingInfo,
                          proposedItem item: Any?, proposedChildIndex index: Int) -> NSDragOperation {
+            let pointerRow = outlineView.row(at: outlineView.convert(info.draggingLocation, from: nil))
+            let target = dropTarget(row: pointerRow)
+            if target == parent.currentDirectory {
+                outlineView.setDropItem(nil, dropChildIndex: NSOutlineViewDropOnItemIndex)
+            } else if parent.rows.indices.contains(pointerRow) {
+                outlineView.setDropItem(parent.rows[pointerRow] as AnyObject,
+                                        dropChildIndex: NSOutlineViewDropOnItemIndex)
+            }
             let urls = NativeFileDragPasteboard.urls(from: info.draggingPasteboard)
-            return FinderDragOperationPolicy.operation(sourceURLs: urls,
-                targetDirectory: parent.rows.first?.item.url.deletingLastPathComponent() ?? URL(fileURLWithPath: "/"),
-                modifiers: NSEvent.modifierFlags)
+            let operation = FinderDragOperationPolicy.operation(sourceURLs: urls,
+                targetDirectory: target, modifiers: NSEvent.modifierFlags)
+            validatedDrop = NativeValidatedDrop(sourceURLs: urls, targetDirectory: target,
+                                                intent: FinderDropIntent(operation))
+            return operation
         }
         func outlineView(_ outlineView: NSOutlineView, acceptDrop info: NSDraggingInfo,
                          item: Any?, childIndex index: Int) -> Bool {
@@ -240,7 +260,15 @@ struct NativeTreeOutlineView: NSViewRepresentable {
             let payloads = NativeFileDragPasteboard.payloads(from: pasteboard.pasteboardItems ?? [])
             let all = Array(Set(urls + payloads.map(\.url)))
             guard !all.isEmpty else { return false }
-            parent.receiveDrop(all, payloads.first?.sourcePaneID)
+            let fallbackRow = item.flatMap { outlineView.row(forItem: $0) } ?? -1
+            let fallbackTarget = dropTarget(row: fallbackRow)
+            let fallbackIntent = FinderDropIntent(FinderDragOperationPolicy.operation(
+                sourceURLs: all, targetDirectory: fallbackTarget, modifiers: NSEvent.modifierFlags))
+            let accepted = NativeDropAcceptance.resolve(validated: validatedDrop, sourceURLs: all,
+                                                        fallbackTarget: fallbackTarget,
+                                                        fallbackIntent: fallbackIntent)
+            validatedDrop = nil
+            parent.receiveDrop(all, payloads.first?.sourcePaneID, accepted.targetDirectory, accepted.intent)
             return true
         }
     }
@@ -248,7 +276,13 @@ struct NativeTreeOutlineView: NSViewRepresentable {
 
 @MainActor final class NativeFileNSOutlineView: NSOutlineView {
     weak var owner: NativeTreeOutlineView.Coordinator?
-    override func mouseDown(with event: NSEvent) { owner?.parent.activate(); super.mouseDown(with: event) }
+    override func mouseDown(with event: NSEvent) {
+        owner?.parent.activate()
+        owner?.prepareMouseDown(at: convert(event.locationInWindow, from: nil),
+                                selectedRows: selectedRowIndexes)
+        super.mouseDown(with: event)
+        owner?.permitsCurrentMouseDrag = true
+    }
     override func menu(for event: NSEvent) -> NSMenu? {
         let row = self.row(at: convert(event.locationInWindow, from: nil))
         return row >= 0 ? owner?.menu(for: row) : nil

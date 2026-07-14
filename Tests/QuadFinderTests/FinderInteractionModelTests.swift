@@ -165,6 +165,139 @@ struct FinderInteractionModelTests {
         monitor.stop()
     }
 
+    @Test @MainActor func externalDirectoryChangesReloadVisibleListing() async throws {
+        let directory = try temporaryDirectory()
+        defer { try? FileManager.default.removeItem(at: directory) }
+        let model = PaneBrowserModel(paneID: UUID(),
+                                     fileSystem: FileSystemService(listingCache: DirectoryListingCache()))
+        model.load(url: directory, showsHiddenFiles: false, bookmark: nil)
+        let initialDeadline = ContinuousClock.now + .seconds(2)
+        while model.isLoading, ContinuousClock.now < initialDeadline {
+            try await Task.sleep(for: .milliseconds(20))
+        }
+        #expect(model.items.isEmpty)
+
+        let monitor = DirectoryMonitoringCenter(debounceDuration: .milliseconds(40)) { url, _ in
+            model.reloadAfterDirectoryChange(url: url, showsHiddenFiles: false, bookmark: nil)
+        }
+        monitor.update(urls: [directory])
+        let added = directory.appendingPathComponent("external.txt")
+        try Data("first".utf8).write(to: added)
+        let createDeadline = ContinuousClock.now + .seconds(3)
+        while !model.items.contains(where: { $0.name == added.lastPathComponent }), ContinuousClock.now < createDeadline {
+            try await Task.sleep(for: .milliseconds(25))
+        }
+        #expect(model.items.contains(where: { $0.name == added.lastPathComponent }))
+
+        try Data(repeating: 0x41, count: 4096).write(to: added)
+        let writeDeadline = ContinuousClock.now + .seconds(3)
+        while model.items.first(where: { $0.name == added.lastPathComponent })?.size != 4096,
+              ContinuousClock.now < writeDeadline {
+            try await Task.sleep(for: .milliseconds(25))
+        }
+        #expect(model.items.first(where: { $0.name == added.lastPathComponent })?.size == 4096)
+
+        try FileManager.default.removeItem(at: added)
+        let deleteDeadline = ContinuousClock.now + .seconds(3)
+        while model.items.contains(where: { $0.name == added.lastPathComponent }), ContinuousClock.now < deleteDeadline {
+            try await Task.sleep(for: .milliseconds(25))
+        }
+        #expect(!model.items.contains(where: { $0.name == added.lastPathComponent }))
+        monitor.stop()
+        model.cancel()
+    }
+
+    @Test @MainActor func fseventsRouteOnlyToTheAffectedDisplayedDirectory() throws {
+        let root = try temporaryDirectory()
+        defer { try? FileManager.default.removeItem(at: root) }
+        let left = root.appendingPathComponent("left", isDirectory: true)
+        let right = root.appendingPathComponent("right", isDirectory: true)
+        try FileManager.default.createDirectory(at: left, withIntermediateDirectories: true)
+        try FileManager.default.createDirectory(at: right, withIntermediateDirectories: true)
+        let affected = DirectoryMonitoringCenter.affectedRoots(
+            observed: [left, right], eventPaths: [left.appendingPathComponent("changed.txt")]
+        )
+
+        #expect(affected == [FileURLIdentity.canonical(left)])
+    }
+
+    @Test @MainActor func continuousEventsDoNotStarveTheFinalDirectorySnapshot() async throws {
+        let directory = try temporaryDirectory()
+        defer { try? FileManager.default.removeItem(at: directory) }
+        let model = PaneBrowserModel(paneID: UUID(),
+            fileSystem: FileSystemService(listingCache: DirectoryListingCache()))
+        model.load(url: directory, showsHiddenFiles: false, bookmark: nil)
+        while model.isLoading { try await Task.sleep(for: .milliseconds(10)) }
+        let added = directory.appendingPathComponent("during-burst.txt")
+        try Data("visible".utf8).write(to: added)
+
+        let burst = Task { @MainActor in
+            for _ in 0..<60 {
+                model.reloadAfterDirectoryChange(url: directory, showsHiddenFiles: false, bookmark: nil)
+                try? await Task.sleep(for: .milliseconds(10))
+            }
+        }
+        try await Task.sleep(for: .milliseconds(350))
+        #expect(model.items.contains(where: { $0.name == added.lastPathComponent }))
+        await burst.value
+        let deadline = ContinuousClock.now + .seconds(2)
+        while model.isLoading, ContinuousClock.now < deadline { try await Task.sleep(for: .milliseconds(10)) }
+        #expect(!model.isLoading)
+        #expect(model.items.contains(where: { $0.name == added.lastPathComponent }))
+        model.cancel()
+    }
+
+    @Test @MainActor func completedMoveRefreshesBothSourceAndTargetPaneSnapshots() async throws {
+        final class Capture: @unchecked Sendable { var urls: [URL] = [] }
+        let root = try temporaryDirectory()
+        defer { try? FileManager.default.removeItem(at: root) }
+        let sourceDirectory = root.appendingPathComponent("source", isDirectory: true)
+        let targetDirectory = root.appendingPathComponent("target", isDirectory: true)
+        try FileManager.default.createDirectory(at: sourceDirectory, withIntermediateDirectories: true)
+        try FileManager.default.createDirectory(at: targetDirectory, withIntermediateDirectories: true)
+        let sourceURL = sourceDirectory.appendingPathComponent("move-me.txt")
+        try Data("move".utf8).write(to: sourceURL)
+        let sourceModel = PaneBrowserModel(paneID: UUID(),
+            fileSystem: FileSystemService(listingCache: DirectoryListingCache()))
+        let targetModel = PaneBrowserModel(paneID: UUID(),
+            fileSystem: FileSystemService(listingCache: DirectoryListingCache()))
+        sourceModel.load(url: sourceDirectory, showsHiddenFiles: false, bookmark: nil)
+        targetModel.load(url: targetDirectory, showsHiddenFiles: false, bookmark: nil)
+        while sourceModel.isLoading || targetModel.isLoading { try await Task.sleep(for: .milliseconds(10)) }
+        #expect(sourceModel.items.contains(where: { $0.name == sourceURL.lastPathComponent }))
+        #expect(targetModel.items.isEmpty)
+
+        let capture = Capture()
+        let token = NotificationCenter.default.addObserver(forName: .quadFinderDirectoryDidChange,
+                                                            object: nil, queue: .main) { note in
+            if let url = note.object as? URL { capture.urls.append(url) }
+        }
+        defer { NotificationCenter.default.removeObserver(token) }
+        let queue = FileOperationQueue(fileSystem: FileSystemService(listingCache: DirectoryListingCache()))
+        queue.enqueue(PendingFileOperation(kind: .move, sourcePaneID: sourceModel.paneID,
+            targetPaneID: targetModel.paneID, sourceURLs: [sourceURL], targetDirectoryURL: targetDirectory))
+        await queue.waitUntilIdle()
+        #expect(queue.jobs.first?.status == .succeeded)
+        #expect(capture.urls.contains(where: { FileURLIdentity.isSame($0, sourceDirectory) }))
+        #expect(capture.urls.contains(where: { FileURLIdentity.isSame($0, targetDirectory) }))
+
+        for changed in capture.urls {
+            sourceModel.reloadAfterDirectoryChange(url: changed, showsHiddenFiles: false, bookmark: nil)
+            targetModel.reloadAfterDirectoryChange(url: changed, showsHiddenFiles: false, bookmark: nil)
+        }
+        let deadline = ContinuousClock.now + .seconds(3)
+        while (sourceModel.items.contains(where: { $0.name == sourceURL.lastPathComponent }) ||
+               !targetModel.items.contains(where: { $0.name == sourceURL.lastPathComponent })) &&
+              ContinuousClock.now < deadline {
+            try await Task.sleep(for: .milliseconds(20))
+        }
+        #expect(!sourceModel.items.contains(where: { $0.name == sourceURL.lastPathComponent }))
+        #expect(targetModel.items.contains(where: { $0.name == sourceURL.lastPathComponent }))
+        #expect(!sourceModel.isLoading)
+        #expect(!targetModel.isLoading)
+        sourceModel.cancel(); targetModel.cancel()
+    }
+
     @Test @MainActor func quickLookSelectionLifecycleIsReloadable() {
         let presenter = QuickLookPresenter.shared
         let first = URL(fileURLWithPath: "/tmp/first")
@@ -270,6 +403,55 @@ struct SidebarDropResolverTests {
 
 @Suite("Native Favorites table integration")
 struct NativeSidebarFavoritesIntegrationTests {
+    @Test @MainActor func clickingSelectedFavoriteNavigatesNewActivePaneWithoutSelectionChange() {
+        let workspace = WorkspaceStore(persistence: MemoryWorkspacePersistence(storage: .init()))
+        let paneA = workspace.state.activePaneID
+        workspace.addPane()
+        let paneB = workspace.state.activePaneID
+        let store = SidebarStore(preferences: MemorySidebarPreferences(),
+                                 home: URL(fileURLWithPath: "/tmp/home"))
+        defer { store.stopObservingMounts() }
+        let view = NativeSidebarFavoritesView(
+            store: store,
+            navigate: {
+                workspace.navigate(paneID: workspace.state.activePaneID, to: $0.url)
+            },
+            perform: { _, _, _, _ in }
+        )
+        let coordinator = NativeSidebarFavoritesView.Coordinator(parent: view)
+        let table = SidebarFavoritesTableView()
+        table.dataSource = coordinator
+        table.delegate = coordinator
+        table.addTableColumn(NSTableColumn(identifier: .init("favorite")))
+        coordinator.table = table
+        table.reselectedRow = { coordinator.navigate(toRow: $0) }
+        table.reloadData()
+
+        workspace.activate(paneA)
+        table.selectRowIndexes([0], byExtendingSelection: false)
+        coordinator.tableViewSelectionDidChange(Notification(name: NSTableView.selectionDidChangeNotification))
+        #expect(workspace.pane(id: paneA)?.currentURL == store.favorites[0].url)
+
+        let elsewhere = URL(fileURLWithPath: "/tmp/elsewhere")
+        workspace.navigate(paneID: paneB, to: elsewhere)
+        workspace.activate(paneB)
+        table.completePrimaryClick(row: 0, wasSelected: true, clickCount: 1, dragBegan: false)
+
+        #expect(workspace.pane(id: paneB)?.currentURL == store.favorites[0].url)
+        #expect(workspace.pane(id: paneA)?.currentURL == store.favorites[0].url)
+        #expect(table.selectedRow == 0)
+    }
+
+    @Test @MainActor func selectedFavoriteDragDoesNotTriggerRepeatedClickNavigation() {
+        let table = SidebarFavoritesTableView()
+        table.addTableColumn(NSTableColumn(identifier: .init("favorite")))
+        table.selectRowIndexes([0], byExtendingSelection: false)
+        var repeatedRows: [Int] = []
+        table.reselectedRow = { repeatedRows.append($0) }
+        table.completePrimaryClick(row: 0, wasSelected: true, clickCount: 1, dragBegan: true)
+        #expect(repeatedRows.isEmpty)
+    }
+
     @Test @MainActor func nativeContainerHeightIsDeterministicForEveryFavoriteCount() {
         let table = SidebarFavoritesTableView()
         table.rowHeight = NativeSidebarFavoritesView.rowHeight

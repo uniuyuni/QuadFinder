@@ -80,3 +80,51 @@ enum FinderDragOperationPolicy {
         (try? url.resourceValues(forKeys: [.volumeIdentifierKey]).volumeIdentifier) as? AnyHashable
     }
 }
+
+/// The destination's final decision for a native file drop.  This value is
+/// captured while AppKit is accepting the drag and carried through to the
+/// operation queue; recomputing it later from `NSApp.currentEvent` can disagree
+/// with the cursor AppKit just displayed.
+enum FinderDropIntent: Equatable, Sendable {
+    case copy
+    case move
+    case link
+
+    init(_ operation: NSDragOperation) {
+        if operation == .link { self = .link }
+        else if operation == .move { self = .move }
+        else { self = .copy }
+    }
+}
+
+struct NativeValidatedDrop: Equatable, Sendable {
+    let sourceURLs: Set<URL>
+    let targetDirectory: URL
+    let intent: FinderDropIntent
+
+    init(sourceURLs: [URL], targetDirectory: URL, intent: FinderDropIntent) {
+        self.sourceURLs = Set(sourceURLs.map(FileURLIdentity.canonical))
+        self.targetDirectory = FileURLIdentity.canonical(targetDirectory)
+        self.intent = intent
+    }
+
+    func matches(sourceURLs: [URL], targetDirectory: URL) -> Bool {
+        matches(sourceURLs: sourceURLs) && FileURLIdentity.isSame(self.targetDirectory, targetDirectory)
+    }
+
+    func matches(sourceURLs: [URL]) -> Bool {
+        self.sourceURLs == Set(sourceURLs.map(FileURLIdentity.canonical))
+    }
+}
+
+enum NativeDropAcceptance {
+    /// `validateDrop` is the point at which AppKit and the cursor agree on a
+    /// destination. The pointer can move outside that row before `acceptDrop`,
+    /// so acceptance must preserve the validated target and operation together.
+    static func resolve(validated: NativeValidatedDrop?, sourceURLs: [URL],
+                        fallbackTarget: URL, fallbackIntent: FinderDropIntent) -> NativeValidatedDrop {
+        if let validated, validated.matches(sourceURLs: sourceURLs) { return validated }
+        return NativeValidatedDrop(sourceURLs: sourceURLs, targetDirectory: fallbackTarget,
+                                   intent: fallbackIntent)
+    }
+}

@@ -420,6 +420,28 @@ struct DirectoryCacheTests {
         #expect(cached.first?.name == "fresh")
     }
 
+    @Test func rapidFreshReloadSupersedesAnOlderFreshReload() async throws {
+        let cache = DirectoryListingCache(ttl: 10)
+        let key = DirectoryListingKey(url: URL(fileURLWithPath: "/tmp/cache-rapid-fresh"), showsHiddenFiles: false)
+        let item: @Sendable (String) -> FileItem = { name in
+            FileItem(url: key.url.appendingPathComponent(name), isDirectory: false, size: 1,
+                     modificationDate: nil, isUbiquitous: false, cloudDownloadStatus: nil)
+        }
+        let first = Task {
+            try await cache.entries(for: key, bypassCache: true) {
+                try await Task.sleep(for: .milliseconds(100))
+                return [item("stale")]
+            }
+        }
+        try await Task.sleep(for: .milliseconds(10))
+        let newest = try await cache.entries(for: key, bypassCache: true) { [item("newest")] }
+        _ = try await first.value
+        let cached = try await cache.entries(for: key) { [item("unexpected")] }
+
+        #expect(newest.first?.name == "newest")
+        #expect(cached.first?.name == "newest")
+    }
+
     @Test func unavailableCloudItemNeverInvokesChecksumReader() async throws {
         let counter = CloudChecksumCounter()
         let checksum = try await CloudChecksumPolicy.checksumIfAvailable(

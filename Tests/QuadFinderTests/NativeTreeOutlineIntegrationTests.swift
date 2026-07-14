@@ -7,9 +7,26 @@ import Testing
 struct NativeTreeOutlineIntegrationTests {
     @MainActor private func treeView(rows: [TreeRow], expanded: Set<URL>, selection: Binding<Set<URL>>) -> NativeTreeOutlineView {
         NativeTreeOutlineView(
-            paneID: UUID(), rows: rows, expandedURLs: expanded, selection: selection,
-            activate: {}, open: { _ in }, toggle: { _ in }, receiveDrop: { _, _ in }, trashDropped: { _ in }
+            paneID: UUID(), currentDirectory: URL(fileURLWithPath: "/tmp"), rows: rows, expandedURLs: expanded, selection: selection,
+            activate: {}, open: { _ in }, toggle: { _ in }, receiveDrop: { _, _, _, _ in }, trashDropped: { _ in }
         )
+    }
+
+    @Test @MainActor func groupedSortStateIsVisibleInTreeHeader() throws {
+        let view = NativeTreeOutlineView(
+            paneID: UUID(), currentDirectory: URL(fileURLWithPath: "/tmp"), rows: [],
+            selection: .constant([]), activate: {}, open: { _ in }, toggle: { _ in },
+            receiveDrop: { _, _, _, _ in }, trashDropped: { _ in },
+            sortDescriptor: FileSortDescriptor(field: .modificationDate, ascending: true, foldersFirst: true)
+        )
+        let coordinator = view.makeCoordinator()
+        let scroll = NativeTreeOutlineView.makeScrollView(coordinator: coordinator)
+        let outline = try #require(scroll.documentView as? NativeFileNSOutlineView)
+        coordinator.reload(outline)
+        let column = try #require(outline.tableColumn(withIdentifier: NativeFileColumn.modificationDate.identifier))
+        #expect(column.title == NativeFileColumn.modificationDate.title)
+        #expect(column.headerToolTip == L10n.format("フォルダ優先・%@", L10n.tr("昇順")))
+        #expect(outline.indicatorImage(in: column)?.accessibilityDescription == column.headerToolTip)
     }
 
     @Test @MainActor func selectionAndDragWriterShareOutlineOwner() throws {
@@ -21,9 +38,9 @@ struct NativeTreeOutlineIntegrationTests {
         }
         var selected = Set<URL>()
         let view = NativeTreeOutlineView(
-            paneID: UUID(), rows: rows,
+            paneID: UUID(), currentDirectory: URL(fileURLWithPath: "/tmp"), rows: rows,
             selection: Binding(get: { selected }, set: { selected = $0 }),
-            activate: {}, open: { _ in }, toggle: { _ in }, receiveDrop: { _, _ in }, trashDropped: { _ in }
+            activate: {}, open: { _ in }, toggle: { _ in }, receiveDrop: { _, _, _, _ in }, trashDropped: { _ in }
         )
         let coordinator = view.makeCoordinator()
         let scroll = NativeTreeOutlineView.makeScrollView(coordinator: coordinator)
@@ -103,9 +120,9 @@ struct NativeTreeOutlineIntegrationTests {
         var selected: Set<URL> = [selectedURL]
         var opened: [URL] = []
         let view = NativeTreeOutlineView(
-            paneID: UUID(), rows: rows, selection: Binding(get: { selected }, set: { selected = $0 }),
+            paneID: UUID(), currentDirectory: URL(fileURLWithPath: "/tmp"), rows: rows, selection: Binding(get: { selected }, set: { selected = $0 }),
             activate: {}, open: { opened.append($0.url) }, toggle: { _ in },
-            receiveDrop: { _, _ in }, trashDropped: { _ in }
+            receiveDrop: { _, _, _, _ in }, trashDropped: { _ in }
         )
         let coordinator = view.makeCoordinator()
         let scroll = NativeTreeOutlineView.makeScrollView(coordinator: coordinator)

@@ -109,7 +109,8 @@ struct FileSystemService: FileOperating, Sendable {
             try await Task.detached(priority: .userInitiated) {
             let keys: Set<URLResourceKey> = [
                 .isDirectoryKey, .fileSizeKey, .contentModificationDateKey, .isHiddenKey,
-                .isUbiquitousItemKey, .ubiquitousItemDownloadingStatusKey, .isSymbolicLinkKey
+                .isUbiquitousItemKey, .ubiquitousItemDownloadingStatusKey, .isSymbolicLinkKey,
+                .isPackageKey, .totalFileSizeKey
             ]
             let urls = try FileManager.default.contentsOfDirectory(
                 at: url,
@@ -117,18 +118,47 @@ struct FileSystemService: FileOperating, Sendable {
                 options: showsHiddenFiles ? [] : [.skipsHiddenFiles]
             )
             try Task.checkCancellation()
-            return try urls.map { itemURL in
+            var items: [FileItem] = []
+            var packagesNeedingSize: [Int] = []
+            items.reserveCapacity(urls.count)
+            for itemURL in urls {
                 let values = try itemURL.resourceValues(forKeys: keys)
-                return FileItem(
+                let size: Int64?
+                if values.isPackage == true {
+                    size = values.totalFileSize.map(Int64.init)
+                } else {
+                    size = values.fileSize.map(Int64.init)
+                }
+                items.append(FileItem(
                     url: itemURL,
                     isDirectory: values.isDirectory == true,
-                    size: values.fileSize.map(Int64.init),
+                    size: size,
                     modificationDate: values.contentModificationDate,
                     isUbiquitous: values.isUbiquitousItem == true,
                     cloudDownloadStatus: values.ubiquitousItemDownloadingStatus?.rawValue,
-                    isSymbolicLink: values.isSymbolicLink == true
-                )
-            }.sorted {
+                    isSymbolicLink: values.isSymbolicLink == true,
+                    isPackage: values.isPackage == true
+                ))
+                if values.isPackage == true, size == nil { packagesNeedingSize.append(items.count - 1) }
+            }
+            // Real .app bundles commonly have no totalFileSize resource value.
+            // Resolve those with the cached, symlink-safe folder calculator.
+            // Four concurrent enumerations keep large application directories
+            // responsive without creating an unbounded disk-I/O storm.
+            for start in stride(from: 0, to: packagesNeedingSize.count, by: 4) {
+                let batch = Array(packagesNeedingSize[start..<min(start + 4, packagesNeedingSize.count)])
+                await withTaskGroup(of: (Int, Int64?).self) { group in
+                    for index in batch {
+                        let packageURL = items[index].url
+                        group.addTask {
+                            let result = try? await FolderSizeCalculator().calculate(urls: [packageURL])
+                            return (index, result?.logicalBytes)
+                        }
+                    }
+                    for await (index, size) in group { items[index] = items[index].replacingSize(size) }
+                }
+            }
+            return items.sorted {
                 if $0.isDirectory != $1.isDirectory { return $0.isDirectory }
                 return $0.name.localizedStandardCompare($1.name) == .orderedAscending
             }

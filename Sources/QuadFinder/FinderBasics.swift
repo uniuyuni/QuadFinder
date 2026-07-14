@@ -1,4 +1,5 @@
 import AppKit
+import CoreServices
 import Foundation
 @preconcurrency import QuickLookUI
 import SwiftUI
@@ -320,6 +321,22 @@ typealias QuickLookController = QuickLookPresenter
 
 // MARK: - Directory monitoring
 
+enum FileURLIdentity {
+    static func canonical(_ url: URL) -> URL {
+        url.standardizedFileURL.resolvingSymlinksInPath().standardizedFileURL
+    }
+
+    static func isSame(_ lhs: URL, _ rhs: URL) -> Bool {
+        canonical(lhs) == canonical(rhs)
+    }
+
+    static func contains(_ directory: URL, _ candidate: URL) -> Bool {
+        let root = canonical(directory).path
+        let path = canonical(candidate).path
+        return path == root || path.hasPrefix(root.hasSuffix("/") ? root : root + "/")
+    }
+}
+
 /// Watches displayed directories through a vnode source. Events are coalesced
 /// and delivered through the same notification already consumed by PaneView.
 @MainActor
@@ -330,6 +347,7 @@ final class DirectoryMonitoringCenter {
     }
 
     private var observations: [URL: Observation] = [:]
+    nonisolated(unsafe) private var eventStream: FSEventStreamRef?
     private var debounceTasks: [URL: Task<Void, Never>] = [:]
     private var eventTokens: [URL: UUID] = [:]
     private let debounceDuration: Duration
@@ -346,19 +364,22 @@ final class DirectoryMonitoringCenter {
     }
 
     func update(urls: Set<URL>) {
-        let canonical = Set(urls.map(\.standardizedFileURL))
+        let canonical = Set(urls.map(FileURLIdentity.canonical))
+        guard canonical != Set(observations.keys) else { return }
         for url in observations.keys where !canonical.contains(url) { remove(url) }
         for url in canonical where observations[url] == nil { add(url) }
+        restartEventStream()
     }
 
     func stop() {
+        stopEventStream()
         for url in Array(observations.keys) { remove(url) }
         debounceTasks.values.forEach { $0.cancel() }
         debounceTasks.removeAll()
     }
 
     func receiveEvent(for url: URL) {
-        let url = url.standardizedFileURL
+        let url = FileURLIdentity.canonical(url)
         let token = UUID()
         eventTokens[url] = token
         debounceTasks[url]?.cancel()
@@ -384,7 +405,10 @@ final class DirectoryMonitoringCenter {
             self.receiveEvent(for: url)
             let flags = source?.data ?? []
             if !flags.intersection([.delete, .rename, .revoke]).isEmpty {
-                self.remove(url)
+                // Keep the event already queued above. `remove` normally
+                // cancels debounce work, which used to swallow the last
+                // refresh when a watched directory was renamed or deleted.
+                self.remove(url, cancelPendingNotification: false)
             }
         }
         source.setCancelHandler { close(descriptor) }
@@ -392,13 +416,91 @@ final class DirectoryMonitoringCenter {
         source.resume()
     }
 
-    private func remove(_ url: URL) {
+    private func remove(_ url: URL, cancelPendingNotification: Bool = true) {
         observations.removeValue(forKey: url)?.source.cancel()
-        debounceTasks.removeValue(forKey: url)?.cancel()
-        eventTokens[url] = nil
+        if cancelPendingNotification {
+            debounceTasks.removeValue(forKey: url)?.cancel()
+            eventTokens[url] = nil
+        }
+    }
+
+    /// Directory vnode sources catch entry changes cheaply, but do not report
+    /// every write to an existing child. FSEvents supplies those descendant
+    /// events. The paths are already limited to the currently displayed
+    /// directories, and the normal debounce coalesces duplicate vnode/FSEvent
+    /// delivery into one reload.
+    private func restartEventStream() {
+        stopEventStream()
+        let paths = observations.keys.map(\.path)
+        guard !paths.isEmpty else { return }
+        var context = FSEventStreamContext(
+            version: 0,
+            info: Unmanaged.passUnretained(self).toOpaque(),
+            retain: nil,
+            release: nil,
+            copyDescription: nil
+        )
+        let callback: FSEventStreamCallback = { _, info, eventCount, eventPaths, _, _ in
+            guard let info else { return }
+            let monitor = Unmanaged<DirectoryMonitoringCenter>.fromOpaque(info).takeUnretainedValue()
+            let values = Unmanaged<CFArray>.fromOpaque(eventPaths).takeUnretainedValue()
+            var paths: [URL] = []
+            paths.reserveCapacity(eventCount)
+            for index in 0..<eventCount {
+                if let path = CFArrayGetValueAtIndex(values, index) {
+                    let value = Unmanaged<CFString>.fromOpaque(path).takeUnretainedValue() as String
+                    paths.append(URL(fileURLWithPath: value))
+                }
+            }
+            Task { @MainActor in monitor.receiveFSEvents(paths: paths) }
+        }
+        let flags = FSEventStreamCreateFlags(
+            kFSEventStreamCreateFlagFileEvents | kFSEventStreamCreateFlagWatchRoot |
+            kFSEventStreamCreateFlagUseCFTypes
+        )
+        guard let stream = FSEventStreamCreate(
+            kCFAllocatorDefault, callback, &context, paths as CFArray,
+            FSEventStreamEventId(kFSEventStreamEventIdSinceNow), 0.08, flags
+        ) else { return }
+        FSEventStreamSetDispatchQueue(stream, .main)
+        guard FSEventStreamStart(stream) else {
+            FSEventStreamInvalidate(stream)
+            FSEventStreamRelease(stream)
+            return
+        }
+        eventStream = stream
+    }
+
+    /// FSEvents can batch paths from every watched root into one callback. Route
+    /// each path only to the displayed directory which actually contains it;
+    /// notifying every pane made a busy directory starve unrelated panes.
+    func receiveFSEvents(paths: [URL]) {
+        guard !paths.isEmpty else { return }
+        for root in Self.affectedRoots(observed: Set(observations.keys), eventPaths: paths) {
+            receiveEvent(for: root)
+        }
+    }
+
+    static func affectedRoots(observed: Set<URL>, eventPaths: [URL]) -> Set<URL> {
+        Set(observed.map(FileURLIdentity.canonical).filter { root in
+            eventPaths.contains(where: { FileURLIdentity.contains(root, $0) })
+        })
+    }
+
+    private func stopEventStream() {
+        guard let stream = eventStream else { return }
+        FSEventStreamStop(stream)
+        FSEventStreamInvalidate(stream)
+        FSEventStreamRelease(stream)
+        eventStream = nil
     }
 
     deinit {
+        if let stream = eventStream {
+            FSEventStreamStop(stream)
+            FSEventStreamInvalidate(stream)
+            FSEventStreamRelease(stream)
+        }
         for observation in observations.values { observation.source.cancel() }
         for task in debounceTasks.values { task.cancel() }
     }

@@ -1114,6 +1114,9 @@ struct NativeSidebarFavoritesView: NSViewRepresentable {
         table.menuProvider = { [weak coordinator = context.coordinator] row in
             coordinator?.menu(for: row)
         }
+        table.reselectedRow = { [weak coordinator = context.coordinator] row in
+            coordinator?.navigate(toRow: row)
+        }
         context.coordinator.table = table
 
         // A scroll view gives a document view with no intrinsic width/height an
@@ -1160,10 +1163,18 @@ struct NativeSidebarFavoritesView: NSViewRepresentable {
         func tableViewSelectionDidChange(_ notification: Notification) {
             guard !suppressSelection, let table,
                   parent.store.favorites.indices.contains(table.selectedRow) else { return }
-            let favorite = parent.store.favorites[table.selectedRow]
-            selectedFavoriteID = favorite.id
+            selectedFavoriteID = parent.store.favorites[table.selectedRow].id
             updateVisibleCellAppearances(in: table)
-            parent.navigate(favorite)
+            navigate(toRow: table.selectedRow)
+        }
+
+        /// NSTableView does not emit selectionDidChange when the user clicks
+        /// the already-selected favorite. Navigation still targets the pane
+        /// which is active at click time, so the same favorite remains useful
+        /// after switching panes.
+        func navigate(toRow row: Int) {
+            guard parent.store.favorites.indices.contains(row) else { return }
+            parent.navigate(parent.store.favorites[row])
         }
 
         func tableView(_ tableView: NSTableView, pasteboardWriterForRow row: Int) -> (any NSPasteboardWriting)? {
@@ -1301,6 +1312,32 @@ struct NativeSidebarFavoritesView: NSViewRepresentable {
 
 final class SidebarFavoritesTableView: NSTableView {
     var menuProvider: ((Int) -> NSMenu?)?
+    var reselectedRow: ((Int) -> Void)?
+    private var dragBeganDuringMouseDown = false
+
+    override func mouseDown(with event: NSEvent) {
+        let row = self.row(at: convert(event.locationInWindow, from: nil))
+        let wasSelected = row >= 0 && selectedRowIndexes.contains(row)
+        dragBeganDuringMouseDown = false
+        super.mouseDown(with: event)
+        completePrimaryClick(row: row, wasSelected: wasSelected,
+                             clickCount: event.clickCount,
+                             dragBegan: dragBeganDuringMouseDown)
+    }
+
+    override func draggingSession(_ session: NSDraggingSession,
+                                  willBeginAt screenPoint: NSPoint) {
+        dragBeganDuringMouseDown = true
+        super.draggingSession(session, willBeginAt: screenPoint)
+    }
+
+    /// Kept as a small deterministic seam for the repeated-row AppKit path.
+    func completePrimaryClick(row: Int, wasSelected: Bool, clickCount: Int,
+                              dragBegan: Bool) {
+        guard wasSelected, !dragBegan, clickCount == 1,
+              row >= 0, selectedRowIndexes.contains(row) else { return }
+        reselectedRow?(row)
+    }
 
     override func menu(for event: NSEvent) -> NSMenu? {
         let row = self.row(at: convert(event.locationInWindow, from: nil))

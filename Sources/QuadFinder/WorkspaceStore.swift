@@ -475,6 +475,22 @@ final class WorkspaceStore: ObservableObject {
         )
     }
 
+    /// Drops onto a folder row while retaining the owning pane for progress,
+    /// history and security-scoped access.
+    func prepareDrop(sourcePaneID: UUID?, targetPaneID: UUID,
+                     targetDirectoryURL: URL, urls: [URL], intent: FinderDropIntent? = nil) {
+        guard let target = pane(id: targetPaneID), !urls.isEmpty else { return }
+        if let sourcePaneID, pane(id: sourcePaneID) == nil { return }
+        prepareDrop(
+            sourcePaneID: sourcePaneID,
+            targetPaneID: targetPaneID,
+            targetDirectoryURL: targetDirectoryURL,
+            targetAccessBookmark: target.accessBookmark,
+            urls: urls,
+            intent: intent
+        )
+    }
+
     /// Finder-style destination used by sidebar rows.  A sidebar target does
     /// not have to be open in a pane; the active pane ID is retained only as
     /// the operation's UI owner while the actual destination URL/bookmark are
@@ -494,15 +510,17 @@ final class WorkspaceStore: ObservableObject {
 
     private func prepareDrop(sourcePaneID: UUID?, targetPaneID: UUID,
                              targetDirectoryURL: URL, targetAccessBookmark: Data?,
-                             urls: [URL]) {
-        let modifiers = DropModifierResolver.resolve(
-            current: NSApp?.currentEvent?.modifierFlags,
-            tracked: DragModifierTracker.shared.trackedFlags
-        )
-        let nativeOperation = FinderDragOperationPolicy.operation(
-            sourceURLs: urls, targetDirectory: targetDirectoryURL, modifiers: modifiers
-        )
-        if nativeOperation == .link {
+                             urls: [URL], intent explicitIntent: FinderDropIntent? = nil) {
+        let intent = explicitIntent ?? {
+            let modifiers = DropModifierResolver.resolve(
+                current: NSApp?.currentEvent?.modifierFlags,
+                tracked: DragModifierTracker.shared.trackedFlags
+            )
+            return FinderDropIntent(FinderDragOperationPolicy.operation(
+                sourceURLs: urls, targetDirectory: targetDirectoryURL, modifiers: modifiers
+            ))
+        }()
+        if intent == .link {
             let request = SymbolicLinkRequest(
                 sourceURLs: urls.map(\.standardizedFileURL),
                 targetDirectoryURL: targetDirectoryURL.standardizedFileURL,
@@ -553,7 +571,7 @@ final class WorkspaceStore: ObservableObject {
         )
         // Finder performs the operation selected by volume and live modifier
         // state immediately. Only an actual name conflict opens the planner.
-        performPendingDrop(as: nativeOperation == .move ? .move : .copy)
+        performPendingDrop(as: intent == .move ? .move : .copy)
     }
 
     /// A permission failure may require two independent grants. Each panel is
@@ -640,7 +658,7 @@ final class WorkspaceStore: ObservableObject {
         // successful no-op. Do not mis-route that harmless case to the name
         // conflict planner. Mixed drags still execute their non-no-op items.
         let effectiveSources = kind == .move ? drop.sourceURLs.filter {
-            $0.deletingLastPathComponent().standardizedFileURL != drop.targetDirectoryURL.standardizedFileURL
+            !FileURLIdentity.isSame($0.deletingLastPathComponent(), drop.targetDirectoryURL)
         } : drop.sourceURLs
         guard !effectiveSources.isEmpty else { return }
         let operation = PendingFileOperation(

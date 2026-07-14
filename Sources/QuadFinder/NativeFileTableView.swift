@@ -11,7 +11,7 @@ enum NativeFileMetadataText {
     }()
 
     static func size(_ item: FileItem) -> String {
-        guard !item.isDirectory, let size = item.size else { return "—" }
+        guard (!item.isDirectory || item.isPackage), let size = item.size else { return "—" }
         return ByteCountFormatter.string(fromByteCount: size, countStyle: .file)
     }
     static func modified(_ item: FileItem) -> String {
@@ -33,11 +33,12 @@ enum NativeFileMetadataText {
 /// NSTableView.  Do not add SwiftUI gestures or event monitors around this view.
 struct NativeFileTableView: NSViewRepresentable {
     let paneID: UUID
+    let currentDirectory: URL
     let items: [FileItem]
     @Binding var selection: Set<URL>
     let activate: () -> Void
     let open: (FileItem) -> Void
-    let receiveDrop: ([URL], UUID?) -> Void
+    let receiveDrop: ([URL], UUID?, URL, FinderDropIntent) -> Void
     let trashDropped: ([URL]) -> Void
     var showsHeader = false
     var sortDescriptor: FileSortDescriptor? = nil
@@ -95,6 +96,8 @@ struct NativeFileTableView: NSViewRepresentable {
         weak var table: NativeFileNSTableView?
         private var applyingSelection = false
         private var contextClickedURL: URL?
+        fileprivate var permitsCurrentMouseDrag = true
+        private var validatedDrop: NativeValidatedDrop?
 
         init(_ parent: NativeFileTableView) { self.parent = parent }
 
@@ -189,11 +192,7 @@ struct NativeFileTableView: NSViewRepresentable {
         }
 
         private func updateSortIndicator(_ table: NSTableView) {
-            for column in table.tableColumns { table.setIndicatorImage(nil, in: column) }
-            guard let sort = parent.sortDescriptor,
-                  let kind = NativeFileColumn.allCases.first(where: { $0.sortField == sort.field }),
-                  let column = table.tableColumn(withIdentifier: kind.identifier) else { return }
-            table.setIndicatorImage(NSImage(named: sort.ascending ? "NSAscendingSortIndicator" : "NSDescendingSortIndicator"), in: column)
+            updateNativeSortIndicator(on: table, sort: parent.sortDescriptor)
         }
 
         func dragEnded(_ session: NSDraggingSession, operation: NSDragOperation) {
@@ -244,17 +243,39 @@ struct NativeFileTableView: NSViewRepresentable {
         }
 
         func tableView(_ tableView: NSTableView, pasteboardWriterForRow row: Int) -> NSPasteboardWriting? {
-            guard parent.items.indices.contains(row) else { return nil }
+            guard permitsCurrentMouseDrag, parent.items.indices.contains(row) else { return nil }
             return NativeFileDragPasteboard.item(for: .init(sourcePaneID: parent.paneID, url: parent.items[row].url))
+        }
+
+        fileprivate func prepareMouseDown(at point: NSPoint, selectedRows: IndexSet) {
+            let row = table?.row(at: point) ?? -1
+            permitsCurrentMouseDrag = NativeFileRowDragPolicy.canDrag(
+                row: row,
+                nameHitRow: table.flatMap { NativeFileNameHitTesting.itemIndex(at: point, in: $0) },
+                selectedRowsBeforeMouseDown: selectedRows
+            )
+        }
+
+        private func dropTarget(row: Int) -> URL {
+            NativeFileDropTarget.resolve(row: row, items: parent.items,
+                                         currentDirectory: parent.currentDirectory)
         }
 
         func tableView(_ tableView: NSTableView, validateDrop info: NSDraggingInfo,
                        proposedRow row: Int, proposedDropOperation dropOperation: NSTableView.DropOperation) -> NSDragOperation {
-            tableView.setDropRow(-1, dropOperation: .on)
+            let pointerRow = tableView.row(at: tableView.convert(info.draggingLocation, from: nil))
+            let target = dropTarget(row: pointerRow)
+            if target == parent.currentDirectory {
+                tableView.setDropRow(-1, dropOperation: .on)
+            } else {
+                tableView.setDropRow(pointerRow, dropOperation: .on)
+            }
             let urls = NativeFileDragPasteboard.urls(from: info.draggingPasteboard)
-            return FinderDragOperationPolicy.operation(sourceURLs: urls,
-                targetDirectory: parent.items.first?.url.deletingLastPathComponent() ?? URL(fileURLWithPath: "/"),
-                modifiers: NSEvent.modifierFlags)
+            let operation = FinderDragOperationPolicy.operation(sourceURLs: urls,
+                targetDirectory: target, modifiers: NSEvent.modifierFlags)
+            validatedDrop = NativeValidatedDrop(sourceURLs: urls, targetDirectory: target,
+                                                intent: FinderDropIntent(operation))
+            return operation
         }
 
         func tableView(_ tableView: NSTableView, acceptDrop info: NSDraggingInfo,
@@ -264,9 +285,31 @@ struct NativeFileTableView: NSViewRepresentable {
             let all = Array(Set(urls + payloads.map(\.url)))
             guard !all.isEmpty else { return false }
             let source = payloads.first.map(\.sourcePaneID)
-            parent.receiveDrop(all, source)
+            let fallbackTarget = dropTarget(row: row)
+            let fallbackIntent = FinderDropIntent(FinderDragOperationPolicy.operation(
+                sourceURLs: all, targetDirectory: fallbackTarget, modifiers: NSEvent.modifierFlags))
+            let accepted = NativeDropAcceptance.resolve(validated: validatedDrop, sourceURLs: all,
+                                                        fallbackTarget: fallbackTarget,
+                                                        fallbackIntent: fallbackIntent)
+            validatedDrop = nil
+            parent.receiveDrop(all, source, accepted.targetDirectory, accepted.intent)
             return true
         }
+    }
+}
+
+enum NativeFileRowDragPolicy {
+    static func canDrag(row: Int, nameHitRow: Int?, selectedRowsBeforeMouseDown: IndexSet) -> Bool {
+        row >= 0 && (nameHitRow == row || selectedRowsBeforeMouseDown.contains(row))
+    }
+}
+
+enum NativeFileDropTarget {
+    static func resolve(row: Int, items: [FileItem], currentDirectory: URL) -> URL {
+        guard items.indices.contains(row) else { return currentDirectory }
+        let item = items[row]
+        return item.isDirectory && !item.isPackage && !item.isSymbolicLink
+            ? item.url : currentDirectory
     }
 }
 
@@ -316,7 +359,10 @@ struct NativeFileTableView: NSViewRepresentable {
 
     override func mouseDown(with event: NSEvent) {
         owner?.parent.activate()
+        owner?.prepareMouseDown(at: convert(event.locationInWindow, from: nil),
+                                selectedRows: selectedRowIndexes)
         super.mouseDown(with: event) // AppKit owns click, modifiers and drag threshold.
+        owner?.permitsCurrentMouseDrag = true
     }
 
     override func menu(for event: NSEvent) -> NSMenu? {

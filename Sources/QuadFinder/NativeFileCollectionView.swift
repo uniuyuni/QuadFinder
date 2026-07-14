@@ -5,11 +5,12 @@ import SwiftUI
 /// disambiguation, pasteboard production and drop negotiation.
 struct NativeFileCollectionView: NSViewRepresentable {
     let paneID: UUID
+    let currentDirectory: URL
     let items: [FileItem]
     @Binding var selection: Set<URL>
     let activate: () -> Void
     let open: (FileItem) -> Void
-    let receiveDrop: ([URL], UUID?) -> Void
+    let receiveDrop: ([URL], UUID?, URL, FinderDropIntent) -> Void
     let trashDropped: ([URL]) -> Void
     let isClipboardMarked: (URL) -> Bool
     var contextMenu: NativeFinderContextMenuConfiguration? = nil
@@ -56,6 +57,7 @@ struct NativeFileCollectionView: NSViewRepresentable {
         weak var collection: NSCollectionView?
         private var applyingSelection = false
         private var contextClickedURL: URL?
+        private var validatedDrop: NativeValidatedDrop?
 
         init(_ parent: NativeFileCollectionView) { self.parent = parent }
 
@@ -158,10 +160,16 @@ struct NativeFileCollectionView: NSViewRepresentable {
                             proposedIndexPath: AutoreleasingUnsafeMutablePointer<NSIndexPath>,
                             dropOperation: UnsafeMutablePointer<NSCollectionView.DropOperation>) -> NSDragOperation {
             dropOperation.pointee = .on
+            let point = collectionView.convert(draggingInfo.draggingLocation, from: nil)
+            let row = collectionView.indexPathForItem(at: point)?.item ?? -1
+            let target = NativeFileDropTarget.resolve(row: row, items: parent.items,
+                                                      currentDirectory: parent.currentDirectory)
             let urls = NativeFileDragPasteboard.urls(from: draggingInfo.draggingPasteboard)
-            return FinderDragOperationPolicy.operation(sourceURLs: urls,
-                targetDirectory: parent.items.first?.url.deletingLastPathComponent() ?? URL(fileURLWithPath: "/"),
-                modifiers: NSEvent.modifierFlags)
+            let operation = FinderDragOperationPolicy.operation(sourceURLs: urls,
+                targetDirectory: target, modifiers: NSEvent.modifierFlags)
+            validatedDrop = NativeValidatedDrop(sourceURLs: urls, targetDirectory: target,
+                                                intent: FinderDropIntent(operation))
+            return operation
         }
 
         func collectionView(_ collectionView: NSCollectionView, acceptDrop draggingInfo: NSDraggingInfo,
@@ -171,7 +179,15 @@ struct NativeFileCollectionView: NSViewRepresentable {
             let payloads = NativeFileDragPasteboard.payloads(from: pasteboard.pasteboardItems ?? [])
             let all = Array(Set(urls + payloads.map(\.url)))
             guard !all.isEmpty else { return false }
-            parent.receiveDrop(all, payloads.first?.sourcePaneID)
+            let fallbackTarget = NativeFileDropTarget.resolve(row: indexPath.item, items: parent.items,
+                                                              currentDirectory: parent.currentDirectory)
+            let fallbackIntent = FinderDropIntent(FinderDragOperationPolicy.operation(
+                sourceURLs: all, targetDirectory: fallbackTarget, modifiers: NSEvent.modifierFlags))
+            let accepted = NativeDropAcceptance.resolve(validated: validatedDrop, sourceURLs: all,
+                                                        fallbackTarget: fallbackTarget,
+                                                        fallbackIntent: fallbackIntent)
+            validatedDrop = nil
+            parent.receiveDrop(all, payloads.first?.sourcePaneID, accepted.targetDirectory, accepted.intent)
             return true
         }
     }

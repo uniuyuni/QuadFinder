@@ -74,4 +74,29 @@ struct NativeFileDragBridgeTests {
             resourceValues: { mixed[$0.path] }))
     }
 
+    @Test func validatedIntentOnlyMatchesTheDropThatProducedTheCursor() {
+        let source = URL(fileURLWithPath: "/tmp/source")
+        let target = URL(fileURLWithPath: "/tmp/target", isDirectory: true)
+        let validation = NativeValidatedDrop(sourceURLs: [source], targetDirectory: target, intent: .move)
+
+        #expect(validation.matches(sourceURLs: [source], targetDirectory: target))
+        #expect(validation.intent == .move)
+        #expect(!validation.matches(sourceURLs: [source], targetDirectory: URL(fileURLWithPath: "/tmp/other")))
+        #expect(!validation.matches(sourceURLs: [URL(fileURLWithPath: "/tmp/other-source")], targetDirectory: target))
+    }
+
+    @Test func acceptancePreservesValidatedTargetWhenPointerFallbackChanges() {
+        let source = URL(fileURLWithPath: "/tmp/source")
+        let validatedTarget = URL(fileURLWithPath: "/tmp/folder-row", isDirectory: true)
+        let pointerFallback = URL(fileURLWithPath: "/tmp/pane-current", isDirectory: true)
+        let validation = NativeValidatedDrop(sourceURLs: [source], targetDirectory: validatedTarget, intent: .move)
+
+        let accepted = NativeDropAcceptance.resolve(
+            validated: validation, sourceURLs: [source], fallbackTarget: pointerFallback, fallbackIntent: .copy
+        )
+
+        #expect(accepted.targetDirectory == FileURLIdentity.canonical(validatedTarget))
+        #expect(accepted.intent == .move)
+    }
+
 }

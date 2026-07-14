@@ -412,3 +412,7 @@
 "実行中" = "Running";
 "完了" = "Completed";
 "失敗" = "Failed";
+"昇順" = "Ascending";
+"降順" = "Descending";
+"フォルダ優先・%@" = "Folders first · %@";
+"フォルダ優先" = "Folders first";

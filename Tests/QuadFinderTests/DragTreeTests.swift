@@ -83,6 +83,53 @@ struct DragTreeTests {
         #expect(!model.expanded.contains(folderItem.url))
     }
 
+    @Test @MainActor func treeRefreshUpdatesExpandedChildDirectory() async throws {
+        let root = try temporaryDirectory(); defer { try? FileManager.default.removeItem(at: root) }
+        let folder = root.appendingPathComponent("folder", isDirectory: true)
+        try FileManager.default.createDirectory(at: folder, withIntermediateDirectories: true)
+        let fileSystem = FileSystemService(listingCache: DirectoryListingCache())
+        let roots = try await fileSystem.listDirectory(root, showsHiddenFiles: false, bypassCache: true)
+        let folderItem = try #require(roots.first { FileURLIdentity.isSame($0.url, folder) })
+        let model = TreeBrowserModel(fileSystem: fileSystem)
+        model.toggle(folderItem, showsHiddenFiles: false, bookmark: nil)
+        await model.waitForLoad(folder)
+
+        let added = folder.appendingPathComponent("visible.txt")
+        try Data("visible".utf8).write(to: added)
+        model.reloadExpandedDirectories(changedURL: root, rootURL: root,
+                                        showsHiddenFiles: false, bookmark: nil)
+        await model.waitForRefresh()
+        #expect(model.rows(rootItems: roots).contains { FileURLIdentity.isSame($0.item.url, added) })
+
+        try FileManager.default.removeItem(at: added)
+        model.reloadExpandedDirectories(changedURL: folder, rootURL: root,
+                                        showsHiddenFiles: false, bookmark: nil)
+        await model.waitForRefresh()
+        #expect(!model.rows(rootItems: roots).contains { FileURLIdentity.isSame($0.item.url, added) })
+    }
+
+    @Test @MainActor func continuousTreeEventsStillPublishFinalExpandedSnapshot() async throws {
+        let root = try temporaryDirectory(); defer { try? FileManager.default.removeItem(at: root) }
+        let folder = root.appendingPathComponent("folder", isDirectory: true)
+        try FileManager.default.createDirectory(at: folder, withIntermediateDirectories: true)
+        let fileSystem = FileSystemService(listingCache: DirectoryListingCache())
+        let roots = try await fileSystem.listDirectory(root, showsHiddenFiles: false, bypassCache: true)
+        let folderItem = try #require(roots.first { FileURLIdentity.isSame($0.url, folder) })
+        let model = TreeBrowserModel(fileSystem: fileSystem)
+        model.toggle(folderItem, showsHiddenFiles: false, bookmark: nil)
+        await model.waitForLoad(folderItem.url)
+        let final = folder.appendingPathComponent("final.txt")
+        try Data("final".utf8).write(to: final)
+
+        for _ in 0..<60 {
+            model.reloadExpandedDirectories(changedURL: root, rootURL: root,
+                                            showsHiddenFiles: false, bookmark: nil)
+            try await Task.sleep(for: .milliseconds(5))
+        }
+        await model.waitForRefresh()
+        #expect(model.rows(rootItems: roots).contains { FileURLIdentity.isSame($0.item.url, final) })
+    }
+
     @Test func treeViewStyleRoundTripsAndOldStateStillDecodes() throws {
         var tab = TabState(currentURL: URL(fileURLWithPath: "/tmp")); tab.viewStyle = .tree
         let decoded = try JSONDecoder().decode(TabState.self, from: JSONEncoder().encode(tab))
@@ -117,5 +164,72 @@ struct FileSortingTests {
         #expect(descriptor.sorted([a, b]).map(\.size) == [2, 9])
         descriptor.select(.size)
         #expect(descriptor.sorted([a, b]).map(\.size) == [9, 2])
+    }
+
+    @Test func repeatedColumnSelectionCyclesAllFourModesAndNewColumnResets() {
+        var descriptor = FileSortDescriptor()
+        #expect((descriptor.ascending, descriptor.foldersFirst) == (true, false))
+        descriptor.select(.name)
+        #expect((descriptor.ascending, descriptor.foldersFirst) == (false, false))
+        descriptor.select(.name)
+        #expect((descriptor.ascending, descriptor.foldersFirst) == (true, true))
+        descriptor.select(.name)
+        #expect((descriptor.ascending, descriptor.foldersFirst) == (false, true))
+        descriptor.select(.name)
+        #expect((descriptor.ascending, descriptor.foldersFirst) == (true, false))
+
+        descriptor.select(.modificationDate)
+        #expect(descriptor.field == .modificationDate)
+        #expect((descriptor.ascending, descriptor.foldersFirst) == (true, false))
+    }
+
+    @Test func legacyDescriptorWithoutFolderGroupingDecodesAsMixed() throws {
+        let oldJSON = Data(#"{"field":"size","ascending":false}"#.utf8)
+        let descriptor = try JSONDecoder().decode(FileSortDescriptor.self, from: oldJSON)
+        #expect(descriptor.field == .size)
+        #expect(!descriptor.ascending)
+        #expect(!descriptor.foldersFirst)
+
+        let restored = try JSONDecoder().decode(
+            FileSortDescriptor.self,
+            from: JSONEncoder().encode(FileSortDescriptor(field: .cloud, ascending: false, foldersFirst: true))
+        )
+        #expect(restored == FileSortDescriptor(field: .cloud, ascending: false, foldersFirst: true))
+    }
+
+    @Test func foldersFirstKeepsRealFoldersAboveFilesAndPackagesForEveryFieldAndDirection() {
+        let base = URL(fileURLWithPath: "/tmp/four-sort-modes")
+        let early = Date(timeIntervalSince1970: 100)
+        let late = Date(timeIntervalSince1970: 200)
+        let folderA = FileItem(url: base.appendingPathComponent("a-folder"), isDirectory: true, size: 1,
+                               modificationDate: early, isUbiquitous: true, cloudDownloadStatus: "a")
+        let folderZ = FileItem(url: base.appendingPathComponent("z-folder"), isDirectory: true, size: 8,
+                               modificationDate: late, isUbiquitous: true, cloudDownloadStatus: "z")
+        let fileB = FileItem(url: base.appendingPathComponent("b-file"), isDirectory: false, size: 2,
+                             modificationDate: early, isUbiquitous: true, cloudDownloadStatus: "b")
+        let packageY = FileItem(url: base.appendingPathComponent("y-package.app"), isDirectory: true, size: 7,
+                                modificationDate: late, isUbiquitous: true, cloudDownloadStatus: "y",
+                                isPackage: true)
+        let items = [packageY, folderZ, fileB, folderA]
+
+        for field in FileSortField.allCases {
+            for ascending in [true, false] {
+                let result = FileSortDescriptor(field: field, ascending: ascending, foldersFirst: true).sorted(items)
+                #expect(result.prefix(2).allSatisfy { $0.isDirectory && !$0.isPackage })
+                #expect(result.suffix(2).allSatisfy { !$0.isDirectory || $0.isPackage })
+                switch field {
+                case .name:
+                    #expect(result.map(\.name) == (ascending
+                        ? ["a-folder", "z-folder", "b-file", "y-package.app"]
+                        : ["z-folder", "a-folder", "y-package.app", "b-file"]))
+                case .size:
+                    #expect(result.map(\.size) == (ascending ? [1, 8, 2, 7] : [8, 1, 7, 2]))
+                case .modificationDate:
+                    #expect(result.map(\.modificationDate) == (ascending ? [early, late, early, late] : [late, early, late, early]))
+                case .cloud:
+                    #expect(result.map(\.cloudDownloadStatus) == (ascending ? ["a", "z", "b", "y"] : ["z", "a", "y", "b"]))
+                }
+            }
+        }
     }
 }

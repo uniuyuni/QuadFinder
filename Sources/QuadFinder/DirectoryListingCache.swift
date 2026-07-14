@@ -35,7 +35,7 @@ actor DirectoryListingCache {
         if !bypassCache, let entry = cached[key], Date().timeIntervalSince(entry.storedAt) < ttl {
             return entry.items
         }
-        if let existing = inFlight[key], !bypassCache || existing.isFreshReload {
+        if let existing = inFlight[key], !bypassCache {
             let result = try await existing.task.value
             try Task.checkCancellation()
             return result

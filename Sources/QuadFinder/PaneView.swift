@@ -74,8 +74,9 @@ struct PaneView: View {
             .onReceive(NotificationCenter.default.publisher(for: .quadFinderDirectoryDidChange)) { note in
                 guard let changed = note.object as? URL else { return }
                 Task { await FolderSizeCalculator.invalidate(url: changed) }
-                guard changed.standardizedFileURL == pane.currentURL.standardizedFileURL else { return }
-                browser.load(url: pane.currentURL, showsHiddenFiles: pane.showsHiddenFiles, bookmark: pane.accessBookmark, bypassCache: true)
+                guard FileURLIdentity.isSame(changed, pane.currentURL) else { return }
+                browser.reloadAfterDirectoryChange(url: pane.currentURL, showsHiddenFiles: pane.showsHiddenFiles,
+                                                   bookmark: pane.accessBookmark)
             }
             .dropDestination(for: URL.self) { urls, _ in
                 workspace.prepareDrop(sourcePaneID: nil, targetPaneID: paneID, urls: urls)
@@ -256,12 +257,14 @@ struct PaneView: View {
         } else if pane.viewStyle == .list {
                 NativeFileTableView(
                     paneID: paneID,
+                    currentDirectory: pane.currentURL,
                     items: pane.sortDescriptor.sorted(browser.items),
                     selection: selectionBinding(pane),
                     activate: { workspace.activate(paneID) },
                     open: open,
-                    receiveDrop: { urls, sourcePaneID in
-                        workspace.prepareDrop(sourcePaneID: sourcePaneID, targetPaneID: paneID, urls: urls)
+                    receiveDrop: { urls, sourcePaneID, targetDirectory, intent in
+                        workspace.prepareDrop(sourcePaneID: sourcePaneID, targetPaneID: paneID,
+                                              targetDirectoryURL: targetDirectory, urls: urls, intent: intent)
                     },
                     trashDropped: { urls in
                         workspace.prepareTrash(urls, origin: .dragAndDrop, accessBookmark: pane.accessBookmark)
@@ -274,12 +277,14 @@ struct PaneView: View {
         } else if pane.viewStyle == .icons {
             NativeFileCollectionView(
                 paneID: paneID,
+                currentDirectory: pane.currentURL,
                 items: pane.sortDescriptor.sorted(browser.items),
                 selection: selectionBinding(pane),
                 activate: { workspace.activate(paneID) },
                 open: open,
-                receiveDrop: { urls, sourcePaneID in
-                    workspace.prepareDrop(sourcePaneID: sourcePaneID, targetPaneID: paneID, urls: urls)
+                receiveDrop: { urls, sourcePaneID, targetDirectory, intent in
+                    workspace.prepareDrop(sourcePaneID: sourcePaneID, targetPaneID: paneID,
+                                          targetDirectoryURL: targetDirectory, urls: urls, intent: intent)
                 },
                 trashDropped: { urls in
                     workspace.prepareTrash(urls, origin: .dragAndDrop, accessBookmark: pane.accessBookmark)
@@ -292,14 +297,16 @@ struct PaneView: View {
                 paneID: paneID,
                 rootURL: pane.currentURL,
                 items: browser.items,
+                showsHiddenFiles: pane.showsHiddenFiles,
                 selection: selectionBinding(pane),
                 bookmark: pane.accessBookmark,
                 open: open,
                 activate: { workspace.activate(paneID) },
                 clipboardMarked: { clipboard.isMarked($0) },
                 clipboardIsCut: clipboard.markedAsCut,
-                receiveDrop: { urls, sourcePaneID in
-                    workspace.prepareDrop(sourcePaneID: sourcePaneID, targetPaneID: paneID, urls: urls)
+                receiveDrop: { urls, sourcePaneID, targetDirectory, intent in
+                    workspace.prepareDrop(sourcePaneID: sourcePaneID, targetPaneID: paneID,
+                                          targetDirectoryURL: targetDirectory, urls: urls, intent: intent)
                 },
                 trashDropped: { urls in
                     workspace.prepareTrash(urls, origin: .dragAndDrop, accessBookmark: pane.accessBookmark)
@@ -308,13 +315,14 @@ struct PaneView: View {
             )
         } else {
                 TreeFileView(
-                    paneID: paneID, rootItems: browser.items, showsHiddenFiles: pane.showsHiddenFiles,
+                    paneID: paneID, rootURL: pane.currentURL, rootItems: browser.items, showsHiddenFiles: pane.showsHiddenFiles,
                     sortDescriptor: pane.sortDescriptor,
                     selection: selectionBinding(pane), bookmark: pane.accessBookmark, open: open,
                     activate: { workspace.activate(paneID) },
                     clipboardMarked: { clipboard.isMarked($0) }, clipboardIsCut: clipboard.markedAsCut,
-                    receiveDrop: { urls, sourcePaneID in
-                        workspace.prepareDrop(sourcePaneID: sourcePaneID, targetPaneID: paneID, urls: urls)
+                    receiveDrop: { urls, sourcePaneID, targetDirectory, intent in
+                        workspace.prepareDrop(sourcePaneID: sourcePaneID, targetPaneID: paneID,
+                                              targetDirectoryURL: targetDirectory, urls: urls, intent: intent)
                     },
                     trashDropped: { urls in
                         workspace.prepareTrash(urls, origin: .dragAndDrop, accessBookmark: pane.accessBookmark)
@@ -560,7 +568,7 @@ struct PaneView: View {
     }
 
     private func open(_ item: FileItem) {
-        if item.isDirectory {
+        if FileItemActivationPolicy.navigatesInside(item) {
             workspace.navigate(paneID: paneID, to: item.url)
         } else {
             NSWorkspace.shared.open(item.url)

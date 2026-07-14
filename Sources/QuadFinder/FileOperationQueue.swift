@@ -170,14 +170,10 @@ final class FileOperationQueue: ObservableObject {
                    normalizedSources.allSatisfy({ !FileManager.default.fileExists(atPath: $0.path) }) {
                     cutMarkerClearer(receipt)
                 }
-                NotificationCenter.default.post(name: .quadFinderDirectoryDidChange, object: operation.targetDirectoryURL)
-                if operation.kind == .move {
-                    for directory in Set(operation.sourceURLs.map { $0.deletingLastPathComponent() }) {
-                        NotificationCenter.default.post(name: .quadFinderDirectoryDidChange, object: directory)
-                    }
-                }
+                postDirectoryChanges(for: operation)
             } catch let partial as PartialOperationFailure {
                 commit(partial.outcome, for: operation, partial: true)
+                if partial.outcome.completedItems > 0 { postDirectoryChanges(for: operation) }
                 update(id) {
                     if stopRequests.contains(id) { $0.status = .stopped }
                     else if partial.underlying is CancellationError { $0.status = .cancelled }
@@ -203,6 +199,16 @@ final class FileOperationQueue: ObservableObject {
     private func update(_ id: UUID, change: (inout FileOperationJob) -> Void) {
         guard let index = jobs.firstIndex(where: { $0.id == id }) else { return }
         change(&jobs[index])
+    }
+
+    private func postDirectoryChanges(for operation: PendingFileOperation) {
+        NotificationCenter.default.post(name: .quadFinderDirectoryDidChange,
+                                        object: operation.targetDirectoryURL.standardizedFileURL)
+        if operation.kind == .move || operation.historyReplay != nil {
+            for directory in Set(operation.sourceURLs.map { $0.deletingLastPathComponent().standardizedFileURL }) {
+                NotificationCenter.default.post(name: .quadFinderDirectoryDidChange, object: directory)
+            }
+        }
     }
 
     private func commit(_ outcome: OperationOutcome, for operation: PendingFileOperation, partial: Bool) {

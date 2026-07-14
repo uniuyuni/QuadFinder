@@ -223,6 +223,61 @@ struct WorkspaceStateTests {
         #expect(store.pane(id: sourceID)?.currentURL == paneDirectory)
     }
 
+    @Test func folderRowDropOnSameVolumeQueuesMoveToThatFolder() throws {
+        let root = FileManager.default.temporaryDirectory.appendingPathComponent(UUID().uuidString, isDirectory: true)
+        let sourceDirectory = root.appendingPathComponent("source", isDirectory: true)
+        let paneDirectory = root.appendingPathComponent("pane", isDirectory: true)
+        let rowDirectory = paneDirectory.appendingPathComponent("row-target", isDirectory: true)
+        try FileManager.default.createDirectory(at: sourceDirectory, withIntermediateDirectories: true)
+        try FileManager.default.createDirectory(at: rowDirectory, withIntermediateDirectories: true)
+        let source = sourceDirectory.appendingPathComponent("item.txt")
+        try Data("move".utf8).write(to: source)
+        defer { try? FileManager.default.removeItem(at: root) }
+
+        let store = makeStore()
+        let paneID = store.state.activePaneID
+        store.navigate(paneID: paneID, to: paneDirectory)
+        DragModifierTracker.shared.reset()
+        store.prepareDrop(sourcePaneID: paneID, targetPaneID: paneID,
+                          targetDirectoryURL: rowDirectory, urls: [source])
+
+        let operation = try #require(store.operationQueue.jobs.last?.operation)
+        #expect(operation.kind == .move)
+        #expect(operation.targetDirectoryURL.standardizedFileURL == rowDirectory.standardizedFileURL)
+    }
+
+    @Test func folderRowDropUsesValidatedIntentWithoutRecomputingIt() throws {
+        let store = makeStore()
+        let paneID = store.state.activePaneID
+        let target = URL(fileURLWithPath: "/tmp/explicit-drop-target", isDirectory: true)
+        let source = URL(fileURLWithPath: "/Volumes/elsewhere/item")
+
+        store.prepareDrop(sourcePaneID: paneID, targetPaneID: paneID,
+                          targetDirectoryURL: target, urls: [source], intent: .move)
+
+        let operation = try #require(store.operationQueue.jobs.last?.operation)
+        #expect(operation.kind == .move)
+        #expect(operation.targetDirectoryURL == target.standardizedFileURL)
+    }
+
+    @Test func onlyMoveBackToTheExactSourceDirectoryIsDiscardedAsNoOp() throws {
+        let root = FileManager.default.temporaryDirectory.appendingPathComponent(UUID().uuidString, isDirectory: true)
+        try FileManager.default.createDirectory(at: root, withIntermediateDirectories: true)
+        defer { try? FileManager.default.removeItem(at: root) }
+        let source = root.appendingPathComponent("item.txt")
+        try Data("item".utf8).write(to: source)
+        let store = makeStore()
+        let paneID = store.state.activePaneID
+
+        store.prepareDrop(sourcePaneID: paneID, targetPaneID: paneID,
+                          targetDirectoryURL: root, urls: [source], intent: .move)
+        #expect(store.operationQueue.jobs.isEmpty)
+
+        store.prepareDrop(sourcePaneID: paneID, targetPaneID: paneID,
+                          targetDirectoryURL: root, urls: [source], intent: .copy)
+        #expect(store.transferPlanner != nil)
+    }
+
     @Test func dividerRatioUsesActualContainerExtent() {
         #expect(DividerMath.updatedRatio(start: 0.5, translation: 100, containerExtent: 1000) == 0.6)
         #expect(DividerMath.updatedRatio(start: 0.5, translation: -50, containerExtent: 500) == 0.4)
@@ -318,5 +373,34 @@ struct FileSystemServiceTests {
             #expect(rejectedSelfCopy)
             #expect(!FileManager.default.fileExists(atPath: inside.appendingPathComponent("source").path))
         }
+    }
+
+    @Test func fileMovesAndCopiesToChildSiblingAndParentDirectoriesAreLegal() async throws {
+        let base = FileManager.default.temporaryDirectory.appendingPathComponent(UUID().uuidString)
+        defer { try? FileManager.default.removeItem(at: base) }
+        let parent = base.appendingPathComponent("parent")
+        let child = parent.appendingPathComponent("child")
+        let sibling = base.appendingPathComponent("sibling")
+        try FileManager.default.createDirectory(at: child, withIntermediateDirectories: true)
+        try FileManager.default.createDirectory(at: sibling, withIntermediateDirectories: true)
+        let original = parent.appendingPathComponent("legal.txt")
+        try Data("legal".utf8).write(to: original)
+        let service = FileSystemService(listingCache: DirectoryListingCache())
+
+        try await service.perform(PendingFileOperation(kind: .move, sourcePaneID: nil,
+            targetPaneID: UUID(), sourceURLs: [original], targetDirectoryURL: child))
+        let inChild = child.appendingPathComponent("legal.txt")
+        #expect(FileManager.default.fileExists(atPath: inChild.path))
+
+        try await service.perform(PendingFileOperation(kind: .copy, sourcePaneID: nil,
+            targetPaneID: UUID(), sourceURLs: [inChild], targetDirectoryURL: sibling))
+        let inSibling = sibling.appendingPathComponent("legal.txt")
+        #expect(FileManager.default.fileExists(atPath: inChild.path))
+        #expect(FileManager.default.fileExists(atPath: inSibling.path))
+
+        try await service.perform(PendingFileOperation(kind: .move, sourcePaneID: nil,
+            targetPaneID: UUID(), sourceURLs: [inSibling], targetDirectoryURL: parent))
+        #expect(!FileManager.default.fileExists(atPath: inSibling.path))
+        #expect(FileManager.default.fileExists(atPath: original.path))
     }
 }

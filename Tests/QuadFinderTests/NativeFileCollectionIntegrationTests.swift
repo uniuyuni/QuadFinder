@@ -12,9 +12,9 @@ struct NativeFileCollectionIntegrationTests {
                                        cloudDownloadStatus: nil) }
         var selected = Set<URL>()
         let browser = NativeFileCollectionView(
-            paneID: UUID(), items: items,
+            paneID: UUID(), currentDirectory: URL(fileURLWithPath: "/tmp"), items: items,
             selection: Binding(get: { selected }, set: { selected = $0 }),
-            activate: {}, open: { _ in }, receiveDrop: { _, _ in }, trashDropped: { _ in },
+            activate: {}, open: { _ in }, receiveDrop: { _, _, _, _ in }, trashDropped: { _ in },
             isClipboardMarked: { _ in false }
         )
         let coordinator = browser.makeCoordinator()

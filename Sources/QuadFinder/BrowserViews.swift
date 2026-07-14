@@ -54,10 +54,21 @@ struct ColumnLevel: Identifiable, Equatable {
 final class ColumnBrowserModel: ObservableObject {
     @Published private(set) var levels: [ColumnLevel] = []
     private var loadTask: Task<Void, Never>?
+    private var refreshTask: Task<Void, Never>?
+    private var refreshPending: Set<URL> = []
+    private var latestRefreshOptions: (showsHiddenFiles: Bool, bookmark: Data?)?
+    private let fileSystem: FileSystemService
+
+    init(fileSystem: FileSystemService = FileSystemService()) {
+        self.fileSystem = fileSystem
+    }
 
     func setRoot(url: URL, items: [FileItem]) {
         if levels.first?.directoryURL != url {
             loadTask?.cancel()
+            refreshTask?.cancel()
+            refreshTask = nil
+            refreshPending = []
             levels = [ColumnLevel(directoryURL: url, items: items, selectedURL: nil)]
         } else if !levels.isEmpty {
             levels[0].items = items
@@ -85,7 +96,7 @@ final class ColumnBrowserModel: ObservableObject {
                 started = true
             }
             defer { if started { scope?.stopAccessingSecurityScopedResource() } }
-            let children = try? await FileSystemService().listDirectory(
+            let children = try? await fileSystem.listDirectory(
                 item.url, showsHiddenFiles: false, bypassCache: true
             )
             guard !Task.isCancelled, levels.indices.contains(levelIndex),
@@ -94,8 +105,55 @@ final class ColumnBrowserModel: ObservableObject {
         }
     }
 
-    func cancel() { loadTask?.cancel() }
+    /// Refreshes every directory which is currently represented by a visible
+    /// column. FSEvents intentionally coalesces descendant changes to the pane
+    /// root, so a root notification must also invalidate all child columns.
+    func reloadVisibleDirectories(changedURL: URL, rootURL: URL,
+                                  showsHiddenFiles: Bool, bookmark: Data?) {
+        guard FileURLIdentity.contains(rootURL, changedURL) else { return }
+        let reloadAll = FileURLIdentity.isSame(changedURL, rootURL)
+        let directories = levels.map(\.directoryURL).filter {
+            reloadAll || FileURLIdentity.isSame($0, changedURL)
+        }
+        guard !directories.isEmpty else { return }
+        refreshPending.formUnion(directories.map(FileURLIdentity.canonical))
+        latestRefreshOptions = (showsHiddenFiles, bookmark)
+        guard refreshTask == nil else { return }
+        refreshTask = Task { [weak self] in
+            guard let self else { return }
+            defer { self.refreshTask = nil }
+            while !Task.isCancelled {
+                try? await Task.sleep(for: .milliseconds(60))
+                guard !Task.isCancelled, let options = self.latestRefreshOptions else { return }
+                let pending = self.refreshPending
+                self.refreshPending = []
+                for directory in pending {
+                    guard !Task.isCancelled else { return }
+                    guard let items = try? await self.fileSystem.listDirectory(
+                        directory, showsHiddenFiles: options.showsHiddenFiles, bypassCache: true
+                    ) else { continue }
+                    guard !Task.isCancelled, let index = self.levels.firstIndex(where: {
+                        FileURLIdentity.isSame($0.directoryURL, directory)
+                    }) else { continue }
+                    self.levels[index].items = items
+                    if let selected = self.levels[index].selectedURL,
+                       !items.contains(where: { FileURLIdentity.isSame($0.url, selected) }) {
+                        self.levels[index].selectedURL = nil
+                        self.levels = Array(self.levels.prefix(index + 1))
+                        break
+                    }
+                }
+                if self.refreshPending.isEmpty { return }
+            }
+        }
+    }
+
+    func cancel() {
+        loadTask?.cancel(); refreshTask?.cancel()
+        refreshTask = nil; refreshPending = []
+    }
     func waitForLoad() async { await loadTask?.value }
+    func waitForRefresh() async { await refreshTask?.value }
 }
 
 /// Finder-style arbitrary-depth columns. Selecting a folder appends its
@@ -104,13 +162,14 @@ struct ColumnFileView: View {
     let paneID: UUID
     let rootURL: URL
     let items: [FileItem]
+    let showsHiddenFiles: Bool
     @Binding var selection: Set<URL>
     let bookmark: Data?
     let open: (FileItem) -> Void
     let activate: () -> Void
     let clipboardMarked: (URL) -> Bool
     let clipboardIsCut: Bool
-    let receiveDrop: ([URL], UUID?) -> Void
+    let receiveDrop: ([URL], UUID?, URL, FinderDropIntent) -> Void
     let trashDropped: ([URL]) -> Void
     let contextMenu: NativeFinderContextMenuConfiguration
 
@@ -128,12 +187,17 @@ struct ColumnFileView: View {
         .onAppear { model.setRoot(url: rootURL, items: items) }
         .onChange(of: rootURL) { _, _ in model.setRoot(url: rootURL, items: items) }
         .onChange(of: items) { _, value in model.setRoot(url: rootURL, items: value) }
+        .onReceive(NotificationCenter.default.publisher(for: .quadFinderDirectoryDidChange)) { note in
+            guard let changed = note.object as? URL else { return }
+            model.reloadVisibleDirectories(changedURL: changed, rootURL: rootURL,
+                                           showsHiddenFiles: showsHiddenFiles, bookmark: bookmark)
+        }
         .onDisappear { model.cancel() }
     }
 
     private func column(_ level: ColumnLevel, index: Int) -> some View {
         NativeFileTableView(
-            paneID: paneID, items: level.items,
+            paneID: paneID, currentDirectory: level.directoryURL, items: level.items,
             selection: Binding(
                 get: { selection.intersection(Set(level.items.map(\.url))) },
                 set: { urls in
@@ -165,6 +229,9 @@ final class TreeBrowserModel: ObservableObject {
     @Published private(set) var children: [URL: [FileItem]] = [:]
     private var generations: [URL: UUID] = [:]
     private var tasks: [URL: Task<Void, Never>] = [:]
+    private var refreshTask: Task<Void, Never>?
+    private var refreshPending: Set<URL> = []
+    private var latestRefreshOptions: (showsHiddenFiles: Bool, bookmark: Data?)?
     private let fileSystem: FileSystemService
 
     init(fileSystem: FileSystemService = FileSystemService()) { self.fileSystem = fileSystem }
@@ -204,12 +271,57 @@ final class TreeBrowserModel: ObservableObject {
         }
     }
 
-    func collapseAll() { tasks.values.forEach { $0.cancel() }; expanded = []; children = [:] }
+    /// Keeps expanded rows live. The pane-level browser owns only the root
+    /// listing; without this path an FSEvent showed the root loading indicator
+    /// while leaving expanded descendants permanently stale.
+    func reloadExpandedDirectories(changedURL: URL, rootURL: URL,
+                                   showsHiddenFiles: Bool, bookmark: Data?) {
+        guard FileURLIdentity.contains(rootURL, changedURL) else { return }
+        let reloadAll = FileURLIdentity.isSame(changedURL, rootURL)
+        refreshPending.formUnion(expanded.filter {
+            reloadAll || FileURLIdentity.isSame($0, changedURL)
+        }.map(FileURLIdentity.canonical))
+        guard !refreshPending.isEmpty else { return }
+        latestRefreshOptions = (showsHiddenFiles, bookmark)
+        guard refreshTask == nil else { return }
+        refreshTask = Task { [weak self] in
+            guard let self else { return }
+            defer { self.refreshTask = nil }
+            while !Task.isCancelled {
+                try? await Task.sleep(for: .milliseconds(60))
+                guard !Task.isCancelled, let options = self.latestRefreshOptions else { return }
+                let pending = self.refreshPending
+                self.refreshPending = []
+                for directory in pending where self.expanded.contains(where: {
+                    FileURLIdentity.isSame($0, directory)
+                }) {
+                    let expandedURL = self.expanded.first(where: {
+                        FileURLIdentity.isSame($0, directory)
+                    }) ?? directory
+                    self.load(expandedURL, showsHiddenFiles: options.showsHiddenFiles,
+                              bookmark: options.bookmark)
+                }
+                let active = pending.compactMap { directory in
+                    self.tasks.first(where: { FileURLIdentity.isSame($0.key, directory) })?.value
+                }
+                for task in active { await task.value }
+                if self.refreshPending.isEmpty { return }
+            }
+        }
+    }
+
+    func collapseAll() {
+        tasks.values.forEach { $0.cancel() }
+        refreshTask?.cancel(); refreshTask = nil; refreshPending = []
+        expanded = []; children = [:]
+    }
     func waitForLoad(_ url: URL) async { await tasks[url]?.value }
+    func waitForRefresh() async { await refreshTask?.value }
 }
 
 struct TreeFileView: View {
     let paneID: UUID
+    let rootURL: URL
     let rootItems: [FileItem]
     let showsHiddenFiles: Bool
     let sortDescriptor: FileSortDescriptor
@@ -219,7 +331,7 @@ struct TreeFileView: View {
     let activate: () -> Void
     let clipboardMarked: (URL) -> Bool
     let clipboardIsCut: Bool
-    let receiveDrop: ([URL], UUID?) -> Void
+    let receiveDrop: ([URL], UUID?, URL, FinderDropIntent) -> Void
     let trashDropped: ([URL]) -> Void
     let selectSort: (FileSortField) -> Void
     let contextMenu: NativeFinderContextMenuConfiguration
@@ -228,6 +340,7 @@ struct TreeFileView: View {
     var body: some View {
         NativeTreeOutlineView(
             paneID: paneID,
+            currentDirectory: rootURL,
             rows: model.rows(rootItems: rootItems, sortDescriptor: sortDescriptor),
             expandedURLs: model.expanded,
             selection: $selection,
@@ -240,5 +353,10 @@ struct TreeFileView: View {
             selectSort: selectSort,
             contextMenu: contextMenu
         )
+        .onReceive(NotificationCenter.default.publisher(for: .quadFinderDirectoryDidChange)) { note in
+            guard let changed = note.object as? URL else { return }
+            model.reloadExpandedDirectories(changedURL: changed, rootURL: rootURL,
+                                            showsHiddenFiles: showsHiddenFiles, bookmark: bookmark)
+        }
     }
 }

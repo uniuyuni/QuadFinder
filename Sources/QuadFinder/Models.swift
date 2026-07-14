@@ -51,23 +51,56 @@ enum FileSortField: String, Codable, CaseIterable, Sendable {
 struct FileSortDescriptor: Codable, Equatable, Sendable {
     var field: FileSortField = .name
     var ascending: Bool = true
+    var foldersFirst: Bool = false
+
+    init(field: FileSortField = .name, ascending: Bool = true, foldersFirst: Bool = false) {
+        self.field = field
+        self.ascending = ascending
+        self.foldersFirst = foldersFirst
+    }
 
     mutating func select(_ field: FileSortField) {
-        if self.field == field { ascending.toggle() }
-        else { self.field = field; ascending = true }
+        guard self.field == field else {
+            self.field = field
+            ascending = true
+            foldersFirst = false
+            return
+        }
+        switch (foldersFirst, ascending) {
+        case (false, true): ascending = false
+        case (false, false): foldersFirst = true; ascending = true
+        case (true, true): ascending = false
+        case (true, false): foldersFirst = false; ascending = true
+        }
     }
 
     func sorted(_ items: [FileItem]) -> [FileItem] {
         items.sorted { lhs, rhs in
+            if foldersFirst {
+                let lhsIsFolder = lhs.isDirectory && !lhs.isPackage
+                let rhsIsFolder = rhs.isDirectory && !rhs.isPackage
+                if lhsIsFolder != rhsIsFolder { return lhsIsFolder }
+            }
             let order: ComparisonResult
             switch field {
             case .name: order = lhs.name.localizedStandardCompare(rhs.name)
             case .size: order = (lhs.size ?? -1) == (rhs.size ?? -1) ? lhs.name.localizedStandardCompare(rhs.name) : ((lhs.size ?? -1) < (rhs.size ?? -1) ? .orderedAscending : .orderedDescending)
             case .modificationDate: order = (lhs.modificationDate ?? .distantPast) == (rhs.modificationDate ?? .distantPast) ? lhs.name.localizedStandardCompare(rhs.name) : ((lhs.modificationDate ?? .distantPast) < (rhs.modificationDate ?? .distantPast) ? .orderedAscending : .orderedDescending)
-            case .cloud: order = (lhs.cloudDownloadStatus ?? "").localizedStandardCompare(rhs.cloudDownloadStatus ?? "")
+            case .cloud:
+                let statusOrder = (lhs.cloudDownloadStatus ?? "").localizedStandardCompare(rhs.cloudDownloadStatus ?? "")
+                order = statusOrder == .orderedSame ? lhs.name.localizedStandardCompare(rhs.name) : statusOrder
             }
             return ascending ? order == .orderedAscending : order == .orderedDescending
         }
+    }
+
+    private enum CodingKeys: String, CodingKey { case field, ascending, foldersFirst }
+
+    init(from decoder: Decoder) throws {
+        let container = try decoder.container(keyedBy: CodingKeys.self)
+        field = try container.decodeIfPresent(FileSortField.self, forKey: .field) ?? .name
+        ascending = try container.decodeIfPresent(Bool.self, forKey: .ascending) ?? true
+        foldersFirst = try container.decodeIfPresent(Bool.self, forKey: .foldersFirst) ?? false
     }
 }
 
@@ -423,9 +456,25 @@ struct FileItem: Identifiable, Hashable, Sendable {
     let isUbiquitous: Bool
     let cloudDownloadStatus: String?
     var isSymbolicLink: Bool = false
+    /// File packages (for example, `.app`) are directories on disk but are
+    /// opened as documents/applications when their name is activated.
+    var isPackage: Bool = false
 
     var id: URL { url }
     var name: String { url.lastPathComponent }
+
+    func replacingSize(_ value: Int64?) -> FileItem {
+        FileItem(url: url, isDirectory: isDirectory, size: value,
+                 modificationDate: modificationDate, isUbiquitous: isUbiquitous,
+                 cloudDownloadStatus: cloudDownloadStatus,
+                 isSymbolicLink: isSymbolicLink, isPackage: isPackage)
+    }
+}
+
+enum FileItemActivationPolicy {
+    static func navigatesInside(_ item: FileItem) -> Bool {
+        item.isDirectory && !item.isPackage
+    }
 }
 
 enum FileOperationKind: String, Sendable {
