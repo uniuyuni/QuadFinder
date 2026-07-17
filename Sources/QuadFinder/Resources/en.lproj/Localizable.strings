@@ -94,6 +94,17 @@
 "ファイル操作キュー" = "File Operation Queue";
 "フォルダをその内部へコピーまたは移動できません: %@" = "A folder cannot be copied or moved inside itself: %@";
 "フォルダを選択…" = "Choose Folder…";
+"パスを入力…" = "Enter Path…";
+"場所を開く" = "Open Location";
+"パスを入力" = "Enter Path";
+"パスを入力してください。" = "Enter a path.";
+"絶対パス、または ~ で始まるパスを入力してください。" = "Enter an absolute path or a path beginning with ~.";
+"絶対パスまたは ~ で始まるパス" = "Absolute path or a path beginning with ~";
+"移動先のパス" = "Destination path";
+"移動先フォルダの絶対パスを入力してください。~ はホームフォルダとして展開されます。" = "Enter the destination folder's absolute path. ~ expands to your home folder.";
+"入力したパスが見つかりません。" = "The entered path could not be found.";
+"入力したパスはフォルダではありません。" = "The entered path is not a folder.";
+"入力したフォルダへアクセスできません。" = "The entered folder cannot be accessed.";
 "フォルダを閉じる" = "Collapse Folder";
 "フォルダを開く" = "Expand Folder";
 "フォルダを開けません" = "Could Not Open Folder";

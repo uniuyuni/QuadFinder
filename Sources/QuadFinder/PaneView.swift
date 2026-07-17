@@ -181,12 +181,15 @@ struct PaneView: View {
             Button { workspace.goBack(paneID: paneID) } label: { Image(systemName: "chevron.left") }
                 .disabled(pane.backwardHistory.isEmpty)
                 .help(L10n.tr("戻る"))
+                .accessibilityLabel(L10n.tr("戻る"))
             Button { workspace.goForward(paneID: paneID) } label: { Image(systemName: "chevron.right") }
                 .disabled(pane.forwardHistory.isEmpty)
                 .help(L10n.tr("進む"))
+                .accessibilityLabel(L10n.tr("進む"))
             Button { workspace.goUp(paneID: paneID) } label: { Image(systemName: "arrow.up") }
                 .disabled(pane.currentURL.path == "/")
                 .help(L10n.tr("上位フォルダ"))
+                .accessibilityLabel(L10n.tr("上位フォルダ"))
             PathBreadcrumbView(url: pane.currentURL) { destination in
                 workspace.navigate(paneID: paneID, to: destination)
             }
@@ -198,8 +201,21 @@ struct PaneView: View {
             }
             Spacer(minLength: 2)
             if browser.isLoading { ProgressView().controlSize(.small) }
-            Button { chooseFolder() } label: { Image(systemName: "folder.badge.gearshape") }
-                .help(L10n.tr("フォルダを選択…"))
+            Menu {
+                Button { chooseFolder() } label: {
+                    Label(L10n.tr("フォルダを選択…"), systemImage: "folder")
+                }
+                Button { enterFolderPath() } label: {
+                    Label(L10n.tr("パスを入力…"), systemImage: "text.cursor")
+                }
+            } label: {
+                Image(systemName: "folder.badge.gearshape")
+                    .frame(width: 18, height: 18)
+            }
+            .menuStyle(.borderlessButton)
+            .fixedSize()
+            .help(L10n.tr("場所を開く"))
+            .accessibilityLabel(L10n.tr("場所を開く"))
             Menu {
                 Button { setViewStyle(.list) } label: { Label(L10n.tr("リスト"), systemImage: "list.bullet") }
                 Button { setViewStyle(.icons) } label: { Label(L10n.tr("アイコン"), systemImage: "square.grid.2x2") }
@@ -626,6 +642,7 @@ struct PaneView: View {
     }
 
     private func chooseFolder() {
+        workspace.activate(paneID)
         let panel = NSOpenPanel()
         panel.canChooseFiles = false
         panel.canChooseDirectories = true
@@ -641,5 +658,26 @@ struct PaneView: View {
             browser.load(url: url, showsHiddenFiles: workspace.pane(id: paneID)?.showsHiddenFiles ?? false,
                          bookmark: bookmark, bypassCache: true)
         }
+    }
+
+    private func enterFolderPath() {
+        workspace.activate(paneID)
+        guard let currentURL = workspace.pane(id: paneID)?.currentURL else { return }
+
+        let field = NSTextField(string: currentURL.path)
+        field.frame = NSRect(x: 0, y: 0, width: 420, height: 24)
+        field.placeholderString = L10n.tr("絶対パスまたは ~ で始まるパス")
+        field.setAccessibilityLabel(L10n.tr("移動先のパス"))
+
+        let alert = NSAlert()
+        alert.messageText = L10n.tr("パスを入力")
+        alert.informativeText = L10n.tr("移動先フォルダの絶対パスを入力してください。~ はホームフォルダとして展開されます。")
+        alert.accessoryView = field
+        alert.addButton(withTitle: L10n.tr("移動"))
+        alert.addButton(withTitle: L10n.tr("キャンセル"))
+        alert.window.initialFirstResponder = field
+        field.selectText(nil)
+        guard alert.runModal() == .alertFirstButtonReturn else { return }
+        workspace.navigateToEnteredFolder(paneID: paneID, path: field.stringValue)
     }
 }

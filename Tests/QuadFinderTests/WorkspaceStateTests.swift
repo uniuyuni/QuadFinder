@@ -73,6 +73,45 @@ struct WorkspaceStateTests {
         #expect(store.pane(id: second)?.backwardHistory.count == 1)
     }
 
+    @Test func backThenForwardRestoresTheSameURLAndHistoryState() {
+        let store = makeStore()
+        let paneID = store.state.activePaneID
+        let first = URL(fileURLWithPath: "/tmp/history-first")
+        let second = URL(fileURLWithPath: "/tmp/history-second")
+        store.navigate(paneID: paneID, to: first)
+        store.navigate(paneID: paneID, to: second)
+
+        store.goBack(paneID: paneID)
+        #expect(store.pane(id: paneID)?.currentURL == first)
+        #expect(store.pane(id: paneID)?.forwardHistory == [second])
+
+        store.goForward(paneID: paneID)
+        #expect(store.pane(id: paneID)?.currentURL == second)
+        #expect(store.pane(id: paneID)?.forwardHistory.isEmpty == true)
+        #expect(store.pane(id: paneID)?.backwardHistory.last == first)
+    }
+
+    @Test func ordinaryNavigationAfterBackClearsForwardHistoryOnlyInThatPane() {
+        let store = makeStore()
+        let firstPane = store.state.activePaneID
+        store.addPane()
+        let secondPane = store.state.activePaneID
+        let first = URL(fileURLWithPath: "/tmp/first-a")
+        let second = URL(fileURLWithPath: "/tmp/first-b")
+        let replacement = URL(fileURLWithPath: "/tmp/first-c")
+        store.navigate(paneID: firstPane, to: first)
+        store.navigate(paneID: firstPane, to: second)
+        store.goBack(paneID: firstPane)
+        store.navigate(paneID: secondPane, to: URL(fileURLWithPath: "/tmp/second-a"))
+        let secondPaneHistory = store.pane(id: secondPane)?.backwardHistory
+
+        store.navigate(paneID: firstPane, to: replacement)
+
+        #expect(store.pane(id: firstPane)?.currentURL == replacement)
+        #expect(store.pane(id: firstPane)?.forwardHistory.isEmpty == true)
+        #expect(store.pane(id: secondPane)?.backwardHistory == secondPaneHistory)
+    }
+
     @Test func successfulEjectRelocatesEveryAffectedPaneOnly() {
         let store = makeStore()
         let first = store.state.activePaneID

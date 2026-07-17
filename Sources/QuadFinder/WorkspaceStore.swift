@@ -2,6 +2,45 @@ import AppKit
 import Foundation
 import SwiftUI
 
+enum EnteredFolderPathError: Error, Equatable {
+    case empty
+    case notAbsolute
+    case notFound
+    case notDirectory
+    case inaccessible
+
+    var message: String {
+        switch self {
+        case .empty: L10n.tr("パスを入力してください。")
+        case .notAbsolute: L10n.tr("絶対パス、または ~ で始まるパスを入力してください。")
+        case .notFound: L10n.tr("入力したパスが見つかりません。")
+        case .notDirectory: L10n.tr("入力したパスはフォルダではありません。")
+        case .inaccessible: L10n.tr("入力したフォルダへアクセスできません。")
+        }
+    }
+}
+
+enum EnteredFolderPath {
+    static func resolve(_ input: String, fileManager: FileManager = .default) throws -> URL {
+        let trimmed = input.trimmingCharacters(in: .whitespacesAndNewlines)
+        guard !trimmed.isEmpty else { throw EnteredFolderPathError.empty }
+
+        let expanded = (trimmed as NSString).expandingTildeInPath
+        guard expanded.hasPrefix("/") else { throw EnteredFolderPathError.notAbsolute }
+        let url = URL(fileURLWithPath: expanded, isDirectory: true).standardizedFileURL
+
+        var isDirectory: ObjCBool = false
+        guard fileManager.fileExists(atPath: url.path, isDirectory: &isDirectory) else {
+            throw EnteredFolderPathError.notFound
+        }
+        guard isDirectory.boolValue else { throw EnteredFolderPathError.notDirectory }
+        guard fileManager.isReadableFile(atPath: url.path) else {
+            throw EnteredFolderPathError.inaccessible
+        }
+        return url
+    }
+}
+
 @MainActor
 final class WorkspaceStore: ObservableObject {
     static let windowScopePolicy = WindowScopePolicy.singleWindow
@@ -331,6 +370,23 @@ final class WorkspaceStore: ObservableObject {
         if propagateLinks, let previousURL,
            url.deletingLastPathComponent().standardizedFileURL == previousURL.standardizedFileURL {
             propagateRelativeNavigation(from: paneID, childName: url.lastPathComponent)
+        }
+    }
+
+    /// Changes the requested pane only after the user-entered folder path has
+    /// been normalized and completely validated.
+    @discardableResult
+    func navigateToEnteredFolder(paneID: UUID, path: String) -> Bool {
+        do {
+            let url = try EnteredFolderPath.resolve(path)
+            navigate(paneID: paneID, to: url)
+            return true
+        } catch let pathError as EnteredFolderPathError {
+            error = UserFacingError(title: L10n.tr("フォルダを開けません"), message: pathError.message)
+            return false
+        } catch {
+            self.error = UserFacingError(title: L10n.tr("フォルダを開けません"), message: error.localizedDescription)
+            return false
         }
     }
 
